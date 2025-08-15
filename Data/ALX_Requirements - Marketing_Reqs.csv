@@ -1,0 +1,65 @@
+Requirement ID,Requirement Type,Requirement Kind,Requirement Description,Priority,PR Mappings,Requirement Parent(s),Requirement Children,Requirement CrossLink(s),Requirement Systematic ASIL,Requirement Hardware ASIL,Requirement Systematic SIL,Requirement Hardware SIL,Requirement Status,Evidence,Date Modified,Revision,Ticket Link(s),Verification Link(s),Change Request Link(s),Notes,,,,
+MRD-001,Marketing Requirement (MRD),Shall,[Use] Each cluster shall support from 2 to 8 cores ,P0,"IPFEAT-349, IPFEAT-396, IPFEAT-350",,,,,,,,Proposed,,,1.1,,,,,,,,
+MRD-002,Marketing Requirement (MRD),Shall,[Use] The entire CPU subsystem can support up to 32 core through multi-cluster ,P0,"IPFEAT-330, IPFEAT-267, IPFEAT-349, IPFEAT-396, IPFEAT-350",,,,,,,,Proposed,,,1.1,,,,,,,,
+MRD-003,Marketing Requirement (MRD),Shall,"[Use] Cluster shall support normal operating mode – Hybrid mode and lock step mode, which can be configured during the boot up. Although by default, Hybrid mode will have lock-step non-core logic to help entire cluster meet ASIL B. However, to improve PPA, it is preferred not to lock-step the entire non-core portion as much as we can ",P0,"IPFEAT-268, IPFEAT-225",,,,,,,,Proposed,,,1.1,,,,,,,,
+MRD-004,Marketing Requirement (MRD),Shall,,P0,,,,,,,,,Proposed,,,1.1,,,,,,,,
+MRD-005,Marketing Requirement (MRD),Shall,[Use] Support hypervisor running different OS’s on different clusters ,P0,Redundant see MRD-045:048,,,,,,,,Proposed,,,1.1,,,,,,,,
+MRD-006,Marketing Requirement (MRD),Shall,[Use] Support freedom from interference running different ASIL tasks within one cluster through VM ,P0,"Redundant see Hypervisors, MRD-045:048",,,,,,,,Proposed,,,1.1,,,,,,,,
+MRD-007,Marketing Requirement (MRD),Shall,"[Perf] The core shall have better performance than A720 when running benchmarks like Dhrystone, Specint, etc.  ",P0,"IPFEAT-220, IPFEAT-253, IPFEAT-273",,,,,,,,Proposed,,,1.1,,,,,,,,
+MRD-008,Marketing Requirement (MRD),Shall,[Perf] Target process node for SOP:  N5A,P0,IPFEAT-254,,,,,,,,Proposed,,,1.2,,,,,,,,
+MRD-009,Marketing Requirement (MRD),Shall,[FuSa] Fulfill ASIL D systemic process and meet ASIL D certification for processes ,P0,"IPFEAT-12, IPFEAT-45, IPFEAT-269, IPFEAT-360, IPFEAT-395",,,,,,,,Proposed,,,1.0,,,,,,,,
+MRD-010,Marketing Requirement (MRD),Shall,[FuSa] Fulfill ASIL B hardware metrics and meet ASIL B product certification in hybrid mode ,P0,"IPFEAT-268, IPFEAT-358",,,,,,,,Proposed,,,1.1,,,,,,,,
+MRD-011,Marketing Requirement (MRD),Shall,[FuSa] Fulfill ASIL D hardware metrics and meet ASIL D product certification in lock mode ,P0,"IPFEAT-52, IPFEAT-50, IPFEAT-56, IPFEAT-55, IPFEAT-354, IPFEAT-357, IPFEAT-225, IPFEAT-360, IPFEAT-304",,,,,,,,Proposed,,,1.1,,,,1% of 2.25GHz? ,,,,
+MRD-012,Marketing Requirement (MRD),Shall,[FuSa] STL shall meet ASIL B requirement ,P0,"IPFEAT-282, IPFEAT-284",,,,,ASIL-B,,,Proposed,,,1.1,,,,,,,,
+MRD-013,Marketing Requirement (MRD),Shall,[FuSa] STL shall operate within ___ cycle and provide sufficient coverages with other hardware safety mechanisms ,P0,IPFEAT-283,,,,,,,,Proposed,,,1.1,,,,Good to have ,,,,
+MRD-014,Marketing Requirement (MRD),Shall,[FuSa] Firmware and driver shall be developed to meet ASIL B requirement ,P0,IPFEAT-288,,,,,,,,Proposed,,,1.1,,,,,,,,
+MRD-015,Marketing Requirement (MRD),Shall,[FuSa] Firmware and driver shall be developed to meet ASIL. D requirement ,P0,IPFEAT-288,,,,,,,,Proposed,,,1.1,,,,Good to have ,,,,
+MRD-016,Marketing Requirement (MRD),Shall,[FuSa] Compiler and toolchain shall be qualified to meet ASIL D requirement [FuSa] ,P1,IPFEAT-37,,,,,,,,Proposed,,,1.0,,,,,,,,
+MRD-017,Marketing Requirement (MRD),Shall,[Security] Support trustzone equivalent features ,P0,IPFEAT-221,,,,,,,,Proposed,,,1.0,,,,,,,,
+MRD-018,Marketing Requirement (MRD),Shall,[Security] Support ISO21434 process for at least threat analysis ,P0,"IPFEAT-221, IPFEAT-222",,,,,,,,Proposed,,,1.1,,,,,,,,
+MRD-019,Marketing Requirement (MRD),Shall,[Security] Support secure boot ,P0,"IPFEAT-222, IPFEAT-302",,,,,,,,Proposed,,,1.1,,,,,,,,
+MRD-020,Marketing Requirement (MRD),Shall,[Quality] IP shall meet AEC-Q100 Grade 2 ,P0,IPFEAT-307,,,,,,,,Proposed,,,1.0,,,,As reference for key target application ADS ,,,,
+MRD-021,Marketing Requirement (MRD),Shall,[Quality] Support automotive quality management system requirement,P0,,,,,,,,,Proposed,,,1.0,,,,,,,,
+MRD-022,Marketing Requirement (MRD),Shall,[Quality] Mission profile for Robo-Taxi,P0,,,,,,,,,Proposed,,,1.0,,,,"
+Lifetime 5 years 
+Driving-On time 34,675 hours 
+Inhibited – off time 3700 hours 
+Charging - standby 5475 hours
+Total KM during life 640,000KM 
+",,,,
+MRD-023,Marketing Requirement (MRD),Shall,[Quality]  Mission profile for Passenger Car,P0,,,,,,,,,Proposed,,,1.0,,,,"
+Lifetime 15 years 
+Driving-On time 16,425 hours 
+Inhibited – off time 114,975 hours 
+Charging - standby 
+Total KM during life 240,000KM 
+",,,,
+MRD-024,Marketing Requirement (MRD),Shall,[Conf] 4 core configuration,P0,IPFEAT-396,,,,,,,,Proposed,,,1.0,,,,Internal customer requirement,Tj ,Distribution ,Operating Hours (Passenger) ,Operating Hours (Robotaxi) 
+MRD-025,Marketing Requirement (MRD),Shall,[Perf]  >18.2 SPECint2006/GHz (single core),P0,IPFEAT-253,,,,,,,,Proposed,,,1.0,,,,,0 ,6% ,985.5 ,2080.5 
+MRD-026,Marketing Requirement (MRD),Shall,[Perf] Fmax degradation shall be within 3-5% of Ascalon D8 under same technology node,P0,IPFEAT-274,,,,,,,,Proposed,,,1.0,,,,,50 ,20% ,3285 ,6935 
+MRD-027,Marketing Requirement (MRD),Shall,"[Perf] Target process node for SOP:  N7A, N4, N3A, SF4A, SF5A",P1,"IPFEAT-387, IPFEAT-254, IPFEAT-255, IPFEAT-256",,,,,,,,Proposed,,,1.0,,,,,90 ,65% ,10767 ,22538.8 
+MRD-028,Marketing Requirement (MRD),Shall,"[Perf] Auto: 2GHz, -40C to 125C Tj, SS< Vdd = Vnom - 10%V (0.675 N5A)",P0,IPFEAT-49,,,,,,,,Proposed,,,1.0,,,,,120 ,8% ,1314 ,2774 
+MRD-029,Marketing Requirement (MRD),Shall,[Perf] Improve multi-core scaling by _%,P1,,,,,,,,,Proposed,,,1.0,,,,Focused on multi-core scaling within the cluster,125 ,1% ,164 ,346.8 
+MRD-030,Marketing Requirement (MRD),Shall,[Power] -20% power reduction compared to single core Ascalon D8,P0,IPFEAT-390,,,,,,,,Proposed,,,1.0,,,,,,Total: ,16425 ,34674 
+MRD-031,Marketing Requirement (MRD),Shall,[Power] Improve power management features to be on par with Arm,P0,IPFEAT-353,,,,,,,,Proposed,,,1.0,,,,,,,,
+MRD-032,Marketing Requirement (MRD),Shall,[Area] Core area shall be improved by 20% compared to Ascalon D8 under same technology node,P0,IPFEAT-280,,,,,,,,Proposed,,,1.0,,,,,,,,
+MRD-033,Marketing Requirement (MRD),Shall,[Other] Fully synthesizable,,IPFEAT-305,,,,,,,,Proposed,,,1.0,,,,,,,,
+MRD-034,Marketing Requirement (MRD),Shall,[Other] Alexandria shall be a soft IP which customer DFT strategy can be supported,P0,"IPFEAT-376, IPFEAT-305, IPFEAT-306",,,,,,,,Proposed,,,1.0,,,,,,,,
+MRD-035,Marketing Requirement (MRD),Shall,[Other] Alexandria shall have mean to allow system to control power and clock frequency changes,P0,IPFEAT-353,,,,,,,,Proposed,,,1.0,,,,,,,,
+MRD-036,Marketing Requirement (MRD),Shall,[Other] Alexandria shall have mean to allow system to execute thermal management policy decision,P0,,,,,,,,,Proposed,,,1.0,,,,,,,,
+MRD-037,Marketing Requirement (MRD),Shall,[Other] Alexandria shall be able to power on/off different cores within the cluster,P0,,,,,,,,,Proposed,,,1.0,,,,,,,,
+MRD-038,Marketing Requirement (MRD),Shall,[Other]Alexandria shall support the ability for individual CPU cores to have LBIST run on them at runtime,P0,IPFEAT-304,,,,,,,,Proposed,,,1.0,,,,,,,,
+MRD-039,Marketing Requirement (MRD),Shall,[Software] Alexandria shall support Safety-specific Rich OS (Linux variants) such as AGL & ELISA,P0,IPFEAT-298,,,,,,,,Proposed,,,1.0,,,,Pre-requisite for IVI market entry,,,,
+MRD-040,Marketing Requirement (MRD),Should,[Software] Alexandria should support Android Automotive OS,P0,IPFEAT-300,,,,,,,,Proposed,,,1.0,,,,,,,,
+MRD-041,Marketing Requirement (MRD),Shall,[Software] Alexandria shall support Zephyr (w/ Safety extensions),P0,IPFEAT-412,,,,,,,,Proposed,,,1.0,,,,,,,,
+MRD-042,Marketing Requirement (MRD),Should,[Software] Alexandria should support SafeRTOS,P1,IPFEAT-412,,,,,,,,Proposed,,,1.0,,,,,,,,
+MRD-043,Marketing Requirement (MRD),Should,[Software] Alexandria should support GreenHills Integrity RTOS,P2,,,,,,,,,Proposed,,,1.0,,,,,,,,
+MRD-044,Marketing Requirement (MRD),Shall,[Software] Alexandria should support WindRiver VxWorks RTOS,P2,,,,,,,,,Proposed,,,1.0,,,,,,,,
+MRD-045,Marketing Requirement (MRD),Shall,[Software] Alexandria shall support Xen Hypervisor,P0,,,,,,,,,Proposed,,,1.0,,,,External bring-up required,,,,
+MRD-046,Marketing Requirement (MRD),Should,[Software] Alexandria should support WindRiver Helix (hypervisor),P2,,,,,,,,,Proposed,,,1.0,,,,External bring-up required,,,,
+MRD-047,Marketing Requirement (MRD),Should,[Software] Alexandria should support GreenHills Integrity Multivisor,P2,,,,,,,,,Proposed,,,1.0,,,,External bring-up required,,,,
+MRD-048,Marketing Requirement (MRD),Shall,[Software] Alexandria shall support full QNX automotive safety software suite (OS/RTOS & Neutrino Hypervisor),P0,,,,,,,,,Proposed,,,1.0,,,,External bring-up required,,,,
+MRD-049,Marketing Requirement (MRD),Should,[Software] Alexandria shall enable customer BSP and boot packages,P0,IPFEAT-303,,,,,,,,,,,1.0,,,,,,,,
+MRD-050,Marketing Requirement (MRD),,,,,,,,,,,,,,,,,,,,,,,
+MRD-051,,,,,,,,,,,,,,,,,,,,,,,,
+MRD-052,,,,,,,,,,,,,,,,,,,,,,,,

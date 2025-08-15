@@ -1,0 +1,305 @@
+Key,Issue Type,Summary,Issue Priority,Status,Updated,Status Update,Description
+IPFEAT-11,Story,[MRD] Bosch Timeline,P1_Major,Backlog,4/30/2025,,"Bosch basedie: 
+tapeout 2026 Q1
+
+6 months backend (buffered) - 2025Q2 RTL (EA desired, LA required) needed"
+IPFEAT-33,IP Feature,[Non-Functional] Overall PPA requirements from Bosch Chiplet (not base die),P0_Showstopper,Under Review,4/28/2025,,"275kDMIPs, 55 SpecInt2k17, 22W (number of cores 10 as POR)
+
+Timeline TBD"
+IPFEAT-31,IP Feature,[Non-Functional] Overall PPA requirements from Bosch Base Die,P0_Showstopper,Feature Approved,4/28/2025,,"150kDMIPs
+
+Timeline CY2026 Silicon available"
+IPFEAT-9,IP Feature,Alexandria - Architecture Spec,P0_Showstopper,Under Review,4/22/2025,,"Mode support
+""P0: “mixed mode” boot time to choose ASIL-D, ASIL-B 
+Hybrid Mode to support ASIL-B
+
+Lock Mode to support ASIL-D 
+
+P0: ensure Standard (without any auto mode) Ascalon supports QM
+MVP: Splitlock implementation
+Architecture Spec
+P1: Hybrid"""
+IPFEAT-314,IP Engineering Milestone,ALX - P&C,P2_Normal,Draft,6/27/2025,,"# *Plan &* Commit. -- *PDRF for P&C, Plan & Commit Approval*
+
+# *Overall theme is that the execution teams have completed their engineering response to the business ask.  They can commit scope, headcount, and schedule.  POR is set.*
+# Final PRD established. *This will need to be done a few weeks before PDRF to allow time for schedule creation.*
+# PoR set and aligned with stakeholders.
+# Execution plan chalked out and aligned with stakeholders
+## Resource scoping done
+## Schedule established
+## Detailed Cost estimation done.
+# Execution Begins post approval from Jim."
+IPFEAT-291,IP Engineering Milestone,Beta ALX-X-4c4m,P2_Normal,Draft,6/27/2025,,"PRD [Schedule] Alexandria shall be available for Beta deployment no later than Oct. 30, 2025"
+IPFEAT-313,IP Engineering Milestone,CA - ALX-X-4c4m,P2_Normal,Draft,6/27/2025,,"Current Link ([https://docs.google.com/presentation/d/1zTXnvgQxATuAUAWf_sbAgzJMq6RzTXFe3wQYMwfnOII/edit?usp=sharing|https://docs.google.com/presentation/d/1zTXnvgQxATuAUAWf_sbAgzJMq6RzTXFe3wQYMwfnOII/edit?usp=sharing|smart-link] )
+
+# Concept -- *PDRF for CA, Concept Approval*
+## *Overall theme is that the business ask is complete*
+## Bounding Box aligned between product/arch/execution teams. -- *The bounding box is aligned to complete the business ask within feasibility contraints.  The execution teams do not have to complete their response until plan and commit*
+## *MRD Complete*
+## Preliminary PRD established.
+## Rough cost estimates done.
+## *Schedule and preliminary HC profile for the project complete*
+## *Legal Compliance --Expectations of export classification, FUSA, FIPs, and other large security aspects known*
+## Business Case Presented to Jim for approval."
+IPFEAT-293,IP Engineering Milestone,EA ALX-X-4c4m,P2_Normal,Draft,6/27/2025,,"PRD [Schedule] Alexandria shall be available for Early Access (EA) deployment no later than March 30, 2026"
+IPFEAT-193,Task,Evaluate FIRRTL/CHISEL datapath in Ascalon D8 implications for Auto,P2_Normal,Done,4/22/2025,,"This item came up in the meeting
+
+[https://tenstorrent.atlassian.net/wiki/spaces/IPM/pages/991821848/2025-3-11+Agenda#Alexandria-(Concept)---%5BinlineCard%5D|https://tenstorrent.atlassian.net/wiki/spaces/IPM/pages/991821848/2025-3-11+Agenda#Alexandria-(Concept)---%5BinlineCard%5D|smart-link] 
+
+
+
+Action is to ask [~accountid:712020:bb9b7d89-6caf-4f1d-a396-06c26712e8fa] [~accountid:634d730b76b91b62562b2c8d] to meet and discuss.
+
+FYI [~accountid:712020:a7153c19-8409-477c-9d8f-d068dc855811] "
+IPFEAT-294,IP Engineering Milestone,GA ALX-X-4c4m,P2_Normal,Draft,6/27/2025,,"PRD [Schedule] Alexandria shall be available for General Access (GA) deployment no later than TBD, 2026"
+IPFEAT-292,IP Engineering Milestone,LA ALX-X-4c4m,P2_Normal,Draft,6/27/2025,,"PRD [Schedule] Alexandria shall be available for Limited Access (LA) deployment no later than Jan. 30, 2026"
+IPFEAT-312,IP Engineering Milestone,PCA ALX-X-4c4m,P2_Normal,Committed,6/27/2025,,"# Pre-Concept -- *PDRF for PCA, Pre-Concept Approval*
+## Product/IP idea approved by Jim
+## *Preliminary business case review & start of MRD*
+## *Understanding of export classification, FUSA, FIPs, and other large security aspects*"
+IPFEAT-27,IP Feature,PRD    Alexandria shall support data path replication option,P0_Showstopper,Under Review,4/30/2025,,   Alexandria shall support data path replication option
+IPFEAT-30,Task,PRD - Deliverables,P0_Showstopper,Backlog,4/30/2025,,"All Ascalon Fixed/Flex Deliverables
+
+Fuctional safety package 
+
+Software test libary (Resiltech)
+
+RTL team - ensure it’s packaged together for delivery"
+IPFEAT-23,IP Feature,PRD - QoS,P0_Showstopper,Under Review,4/30/2025,,Double check on per core cache affinity
+IPFEAT-339,IP Feature,PRD [Debug and Trace] Alexandria CPU cores shall implement instruction tracing and perfromance monitoring units capturing events as defined in section 9.4 of the ascalon_arch.pdf,P0_Showstopper,Backlog,5/23/2025,,Alexandria CPU cores shall implement instruction tracing and perfromance monitoring units capturing events as defined in section 9.4 of the [ascalon_arch.pdf|https://tenstorrent.sharepoint.com/:b:/r/sites/PlatformArchitecture/Shared%20Documents/Ascalon%20Specifications/ascalon_arch.pdf?csf=1&web=1&e=I5l1Yl]
+IPFEAT-338,IP Feature,"PRD [Debug and Trace] Alexandria CPU cores shall support N-Trace. Trace encoder, trace funnel, Trace Sink.",P0_Showstopper,Backlog,5/23/2025,,"Alexandria CPU cores shall support N-Trace. Trace encoder, trace funnel, Trace Sink."
+IPFEAT-337,IP Feature,PRD [Debug and Trace] Alexandria CPU cores shall support the JTAG interface for debugging.,P0_Showstopper,Backlog,5/23/2025,,Alexandria CPU cores shall support the JTAG interface for debugging.
+IPFEAT-24,IP Feature,PRD [Debug and Trace] Alexandria shall support clock monitoring on each core,P0_Showstopper,Under Review,5/23/2025,,Chiplet Requirement
+IPFEAT-28,IP Feature,PRD [Debug and Trace] Alexandria shall support code profiling,P0_Showstopper,Under Review,5/30/2025,,"Alexandria shall support code profiling
+
+similar to SPE"
+IPFEAT-34,IP Feature,PRD [Debug and Trace] Alexandria shall support temperature monitoring,P0_Showstopper,Under Review,5/30/2025,,Chiplet requirement
+IPFEAT-384,IP Feature,"PRD [Deliverables]    Safety analysis reports (FMEDA, DFA) shall be be made available to end-user",P0_Showstopper,Backlog,5/23/2025,,"Safety analysis reports (FMEDA, DFA) shall be be made available to end-user"
+IPFEAT-382,IP Feature,PRD [Deliverables]    Software Development Kit (SDK) and toolchain shall be made available to end-user,P0_Showstopper,Backlog,5/23/2025,,Software Development Kit (SDK) and toolchain shall be made available to end-user
+IPFEAT-381,IP Feature,PRD [Deliverables]    Synthesis scripts and timing constraints shall be made available to end-user,P0_Showstopper,Backlog,5/23/2025,,Synthesis scripts and timing constraints shall be made available to end-user
+IPFEAT-380,IP Feature,PRD [Deliverables]    Verification testbench and test cases shall be made available to end-user,P0_Showstopper,Backlog,5/23/2025,,Verification testbench and test cases shall be made available to end-user
+IPFEAT-383,IP Feature,PRD [Deliverables] ISO 26262 Compliance reports shall be be made available to end-user,P0_Showstopper,Backlog,5/23/2025,,ISO 26262 Compliance reports shall be be made available to end-user
+IPFEAT-331,IP Feature,"PRD [Floating Point Unit] Alexandria CPU cores shall implement IEEE 754 compliant FPU supporting single, double and half precision operations.",P0_Showstopper,Backlog,5/23/2025,,"Alexandria CPU cores shall implement IEEE 754 compliant FPU supporting single, double and half precision operations."
+IPFEAT-214,IP Feature,PRD [Functional]   Alexandria shall support multi-core configurations (clusters) of any integer number from 2 to 8 cores inclusive,P2_Normal,Under Review,4/27/2025,,Alexandria shall support multi-core configurations (clusters) of any integer number from 2 to 8 cores inclusive
+IPFEAT-395,IP Feature,"PRD [Functional] Alexandria clusters shall support a boot-time configurable operating mode of SPLIT, HYBRID or LOCK mode, exclusive.",P0_Showstopper,Backlog,5/30/2025,,"Alexandria clusters shall support a boot-time configurable operating mode of SPLIT, HYBRID or LOCK mode, exclusive."
+IPFEAT-269,IP Feature,"PRD [Functional] Alexandria clusters shall support a build time configurable operating mode of SPLIT, HYBRID or LOCK mode, exclusive.",P2_Normal,Backlog,5/30/2025,,"Alexandria clusters shall support a build time configurable operating mode of SPLIT, HYBRID or LOCK mode, exclusive."
+IPFEAT-268,IP Feature,PRD [Functional] Alexandria clusters shall support Hybrid mode to meet ASIL-B requirements,P2_Normal,Backlog,5/23/2025,,PRD [Functional] Alexandria shall support Hybrid mode where each core operates independently and non-core logic operates in time-shifted lockstep and there are hardware diagnostic mechanisms for shared resources.
+IPFEAT-267,IP Feature,PRD [Functional] Alexandria clusters shall support both Coherent and Non-Coherent combination of clusters by use of CHI.E and AXI-5 Lite interfaces.,P2_Normal,Backlog,5/23/2025,,"Alexandria clusters shall support both Coherent and Non-Coherent combination of clusters by use of CHI.E and AXI-5 Lite interfaces
+
+Does this need to be limited to 32 cores? i.e. (4 clusters of 8 cores) or (8 clusters of 4 cores)."
+IPFEAT-264,IP Feature,"PRD [Functional] Alexandria clusters shall support a configurable shared L2 Cache Size of 2MB, 4MB, 8MB and 12MB inclusive",P2_Normal,Backlog,4/30/2025,,"PRD [Functional] Alexandria clusters shall support a configurable shared L2 Cache Size of 2MB, 4MB, 8MB and 12MB inclusive"
+IPFEAT-247,IP Feature,PRD [Functional] Alexandria clusters shall support Split mode to meet QM requirements,P0_Showstopper,Backlog,5/23/2025,,"Alexandria shall support Split/Standard mode where each core and non-core logic operates independently and there is no hardware support for diagnostics in shared resources
+
+Standard mode: CPU cores operating independently"
+IPFEAT-225,IP Feature,PRD [Functional] Alexandria clusters shall support LOCK mode,P0_Showstopper,Backlog,6/13/2025,,"Alexandria shall support Lock-step mode where pairs of cores and non-core logic operate in time-shifted lockstep and there are hardware diagnostic mechanisms for shared resources
+
+Lock mode: CPU cores and cache controller in time-shifted lock step for ASIL D applications
+
+Fullfill ASIL D systemic processes and meet asil D certification for processes"
+IPFEAT-258,IP Feature,PRD [Functional] Alexandria CPU cores shall be equivalent to Ascalon D8 CPU cores as a baseline,P2_Normal,Backlog,4/30/2025,,PRD [Functional] Alexandria CPU cores shall be equivalent to Ascalon D8 CPU cores as a baseline
+IPFEAT-257,IP Feature,PRD [Functional] Alexandria CPU cores shall implement all mandatory extensions as defined by the RVA23 profile. (RVA23U64/RVA23S64 extensions),P2_Normal,Backlog,5/23/2025,,Alexandria CPU cores shall implement all mandatory extensions as defined by the RVA23 profile. (RVA23U64/RVA23S64 extensions)
+IPFEAT-222,IP Feature,PRD [Functional] Alexandria CPU cores shall support an interface for secure boot process.,P0_Showstopper,Backlog,5/23/2025,,Alexandria CPU cores shall support an interface for secure boot process.
+IPFEAT-221,IP Feature,PRD [Functional] Alexandria CPU cores shall support Static Trusted Execution Environment (STEE),P0_Showstopper,Backlog,5/23/2025,,"   Alexandria shall support a trusted execution environment for software that emulates ARM's TrustZone.
+
+MVP: Support Arm TrustZone equivalent features: [https://www.arm.com/technologies/trustzone-for-cortex-a|https://www.arm.com/technologies/trustzone-for-cortex-a|smart-link] "
+IPFEAT-266,IP Feature,"PRD [Functional] Alexandria CPU subsystem L2 shared cache sizes of 2MB, 4MB, 8MB and 12MB shall be build-time configurable",P1_Major,Backlog,5/30/2025,,"PRD [Functional] L2 shared cache sizes of 2MB, 4MB, 8MB and 12MB shall be build-time configurable"
+IPFEAT-261,IP Feature,PRD [Functional] Alexandria CPU subsystem shall support multi-cluster configurations of up to 3 clusters,P2_Normal,Backlog,4/30/2025,,PRD [Functional] The Alexandria CPU subsystem shall support multi-cluster configurations of up to 3 clusters
+IPFEAT-10,IP Feature,PRD [Functional] Alexandria shall meet ASIL-B in Hybrid Mode,P0_Showstopper,Under Review,4/28/2025,,"Fulfill ASIL B hardware metrics and meet ASIL B product certification in hybrid mode
+
+Hybrid mode: CPU cores operating independently but with shared cache controller in lock step for
+ASIL B applications
+"
+IPFEAT-440,IP Feature,PRD [Functional] Alexandria shall support a build-time configuration to remove all cryptography capabilities to comply with Export Control,P0_Showstopper,Backlog,6/30/2025,,Alexandria shall support a build-time configuration to remove all cryptography capabilities to comply with Export Control
+IPFEAT-270,IP Feature,PRD [Functional] Alexandria shall support a build-time configuration to restrict Double Precision Floating Point results to 4 per cycle to comply with Export Control,P2_Normal,Backlog,5/23/2025,,"[https://tenstorrent.atlassian.net/wiki/spaces/RVRTLDV/pages/417136699|https://tenstorrent.atlassian.net/wiki/spaces/RVRTLDV/pages/417136699]
+
+ Considerations to comply with Export Control will capture package that excludes Floating Point"
+IPFEAT-46,IP Feature,"PRD [Functional] Alexandria shall support Cache-line lock-out on L1 private cache for each core, L2 TLB for each core and shared cache for the cluster.",P0_Showstopper,Under Review,5/30/2025,,"   Alexandria shall support Cachelock on L1 private cache for each core
+
+Request features to be able to lock cache by ways or by line to ensure critical code doesn’t get evicted. Fall back option of using QoS mechanism to ensure critical code doesn’t get evicted might be acceptable."
+IPFEAT-265,IP Feature,PRD [Functional] The 4 core Alexandira cluster shall support a 4MB L2 shared cache,P2_Normal,Backlog,4/30/2025,,PRD [Functional] The 4 core Alexandira cluster shall support a 4MB L2 shared cache
+IPFEAT-263,IP Feature,PRD [Functional] The Alexandria CPU subsystem shall support multi-cluster configurations Up to 8 clusters,P2_Normal,Backlog,4/28/2025,,PRD [Functional] The Alexandria CPU subsystem shall support multi-cluster configurations Up to 8 clusters
+IPFEAT-262,IP Feature,PRD [Functional] The Alexandria CPU subsystem shall support multi-cluster configurations Up to 4 clusters,P2_Normal,Backlog,4/28/2025,,PRD [Functional] The Alexandria CPU subsystem shall support multi-cluster configurations Up to 4 clusters
+IPFEAT-51,IP Feature,"PRD [FuSa]    Alexandria shall have Error Scrubbing, error containing and memory poison",P0_Showstopper,Under Review,5/29/2025,,"Alexandria shall  have Error Scrubbing, error containing and poisoning enabled as needed to support ASIL D safety requirements 
+
+Comprehensive arc for error management and signaling"
+IPFEAT-12,IP Feature,PRD [FuSa]  Alexandria shall fulfill systematic processes to meet ASIL-D requirements,P0_Showstopper,Under Review,4/28/2025,,"# Fulfill ASIL D systemic process and meet ASIL D certification for processes
+# Fulfull ASIL D hardware metrics and meet ASIL D product certification 
+
+
+"
+IPFEAT-374,IP Feature,PRD [FuSa] Alexandria boot-time STL diagnostics may be destructive.,P0_Showstopper,Backlog,5/23/2025,,Alexandria boot-time STL diagnostics may be destructive.
+IPFEAT-52,IP Feature,PRD [FuSa] Alexandria clusters shall support RAS error reporting registers on all components employing SRAM complying with the RERI specification.,P0_Showstopper,Under Review,6/17/2025,,"Automotive OEMs/T1s do not like silent error correction, every error that is corrected needs to be logged and reported. Additional registers for tracking errors is an accepted method."
+IPFEAT-355,IP Feature,PRD [FuSa] Alexandria shall fulfill systematic processes to meet ASIL-D requirements,P0_Showstopper,Backlog,5/23/2025,,Alexandria shall fulfill systematic processes to meet ASIL-D requirements
+IPFEAT-55,IP Feature,PRD [FuSa] Alexandria shall have a separate physical bus for configuring and reporting safety relevant information,P0_Showstopper,Under Review,5/30/2025,,"Compute cluster should be able to interface with safety island
+
+Open to implementation, be freedom from interference"
+IPFEAT-364,IP Feature,PRD [FuSa] Alexandria shall implement a fault management unit to meet ASIL-D requirements,P0_Showstopper,Backlog,5/23/2025,,Alexandria shall implement a fault management unit to meet ASIL-D requirements
+IPFEAT-359,IP Feature,PRD [FuSa] Alexandria shall implement a fault management unit to meet ASIL-B requirements,P0_Showstopper,Backlog,5/23/2025,,Alexandria shall implement a fault management unit to meet ASIL-B requirements
+IPFEAT-358,IP Feature,"PRD [FuSa] Alexandria shall implement a fault management unit for detecting, handling and reporting faults and exceptions.",P0_Showstopper,Backlog,5/29/2025,,Alexandria shall implement hardware fault detection and handling mechanisms to meet ASIL-B requirements
+IPFEAT-45,IP Feature,PRD [FuSa] Alexandria shall implement bus Interface protection enabled to meet ASIL-D requirements,P0_Showstopper,Under Review,5/23/2025,,Configurable ECC/Parity on data and control) In general the interfaces should be fully protected and path to external memory should be protected by ECC/parity. Auto SiPs are okay with the tradeoff of adding additional area due to this.
+IPFEAT-353,IP Feature,PRD [FuSa] Alexandria shall implement Cluster Power Management Logic (CPL),P0_Showstopper,Backlog,5/29/2025,,Alexandria Cluster Power Managment Logic (CPL) shall meet both ASIL-B and ASIL-D reqs
+IPFEAT-356,IP Feature,PRD [FuSa] Alexandria shall implement ECC for critical memroies to meet ASIL-B requirements,P0_Showstopper,Backlog,5/23/2025,,Alexandria shall implement ECC for critical memroies to meet ASIL-B requirements
+IPFEAT-363,IP Feature,PRD [FuSa] Alexandria shall implement hardware fault detection and handling mechanisms to meet ASIL-D requirements,P0_Showstopper,Backlog,5/23/2025,,Alexandria shall implement hardware fault detection and handling mechanisms to meet ASIL-D requirements
+IPFEAT-360,IP Feature,"PRD [FuSa] Alexandria shall implement memory protection for all memories (cache, register files, etc.)",P0_Showstopper,Backlog,5/30/2025,,"Alexandria shall implement memory protection for all memories (cache, register files, etc.)"
+IPFEAT-361,IP Feature,PRD [FuSa] Alexandria shall implement random logic protection to meet ASIL-D requirements,P0_Showstopper,Backlog,5/23/2025,,Alexandria shall implement random logic protection to meet ASIL-D requirements
+IPFEAT-357,IP Feature,PRD [FuSa] Alexandria shall include RTL Built-In Self-Test (BIST) capabilities for logic and memory components to support manufacturing test and in-field diagnostics as well as FuSa compliance. ,P0_Showstopper,Backlog,6/13/2025,,Alexandria shall include RTL Built-In Self-Test (BIST) capabilities for logic and memory components to support manufacturing test and in-field diagnostics as well as FuSa compliance. 
+IPFEAT-285,IP Feature,PRD [FuSa] Alexandria shall meet ASIL-D in Lock Mode,P2_Normal,Backlog,4/28/2025,,PRD [FuSa] Alexandria shall meet ASIL-D in Lock Mode
+IPFEAT-286,IP Feature,PRD [FuSa] Alexandria shall meet QM in Standard Mode,P2_Normal,Backlog,4/28/2025,,PRD [FuSa] Alexandria shall meet QM in Standard Mode
+IPFEAT-354,IP Feature,PRD [FuSa] Alexandria shall support a silicon lifecycle managment (SLM) APB and IEEE-1687 IJTAG interface.,P0_Showstopper,Backlog,6/13/2025,,Alexandria shall support a silicon lifecycle managment (SLM) APB and IEEE-1687 IJTAG interface.
+IPFEAT-362,IP Feature,PRD [FuSa] Alexandria shall support built-in self-test (BIST) for periodic fault detection,P0_Showstopper,Backlog,5/30/2025,,Alexandria shall support built-in self-test (BIST) for periodic fault detection
+IPFEAT-50,IP Feature,PRD [FuSa] Alexandria shall support fault injection mechanisms to enable testing of hardware safety features.,P0_Showstopper,Under Review,6/13/2025,,   Alexandria shall Support Fault injection mechanisms for enabling mechanisms for test hw safety mechanisms
+IPFEAT-287,IP Feature,PRD [FuSa] Alexandria shall Support freedom from interference running different ASIL tasks within one cluster through VM ,P2_Normal,Backlog,4/30/2025,,PRD [FuSa] Alexandria shall Support freedom from interference running different ASIL tasks within one cluster through VM 
+IPFEAT-53,IP Feature,PRD [FuSa] Alexandria shall support modification of ECC type,P0_Showstopper,Under Review,5/30/2025,,Option to change the type of ECC on datapath and memories from SECDED to other variants
+IPFEAT-56,IP Feature,PRD [FuSa] Alexandria shall support real-time hardware safety monitors to detect and respond to CPU faults.,P0_Showstopper,Under Review,6/13/2025,,Any hardware mechanism we implement should be able to be checked in run time 
+IPFEAT-282,IP Feature,PRD [FuSa] Alexandria software hall achieve ASIL-B in HYBRID mode with use of STLs,P2_Normal,Backlog,6/13/2025,,Alexandria STLs shall achieve diagnostic coverage required by ASIL B
+IPFEAT-367,IP Feature,PRD [FuSa] Alexandria STLs shall be configurable for different SoC designs.,P0_Showstopper,Backlog,5/23/2025,,Alexandria STLs shall be configurable for different SoC designs.
+IPFEAT-369,IP Feature,PRD [FuSa] Alexandria STLs shall be interruptable.,P0_Showstopper,Backlog,5/23/2025,,Alexandria STLs shall be interruptable.
+IPFEAT-372,IP Feature,PRD [FuSa] Alexandria STLs shall be portable for future Ascalon uArch products.,P0_Showstopper,Backlog,5/23/2025,,Alexandria STLs shall be portable for future Ascalon uArch products.
+IPFEAT-368,IP Feature,PRD [FuSa] Alexandria STLs shall detect a fault within TBD DTTI.,P0_Showstopper,Backlog,5/23/2025,,Alexandria STLs shall detect a fault within TBD DTTI.
+IPFEAT-370,IP Feature,PRD [FuSa] Alexandria STLs shall not interfere with system application software.,P0_Showstopper,Backlog,5/23/2025,,Alexandria STLs shall not interfere with system application software.
+IPFEAT-366,IP Feature,PRD [FuSa] Alexandria STLs shall not interfere with system application software.,P0_Showstopper,Backlog,5/23/2025,,Alexandria STLs shall not interfere with system application software.
+IPFEAT-283,IP Feature,PRD [FuSa] Alexandria STLs shall operate within ___ cycle and provide sufficient coverages with other hardware safety mechanisms ,P2_Normal,Backlog,4/28/2025,,Benchmark that captures cycles? should not exceed X% of Benchmark cycle? Capture as percentage impact of STL operating?
+IPFEAT-365,IP Feature,PRD [FuSa] Alexandria STLs shall provide API response code.,P0_Showstopper,Backlog,5/23/2025,,Alexandria STLs shall provide API response code.
+IPFEAT-373,IP Feature,PRD [FuSa] Alexandria STLs shall provide comprehensive boot-time diagnostics.,P0_Showstopper,Backlog,5/23/2025,,Alexandria STLs shall provide comprehensive boot-time diagnostics.
+IPFEAT-375,IP Feature,PRD [FuSa] Alexandria STLs shall provide non-destructive run-time diagnostics.,P0_Showstopper,Backlog,5/23/2025,,Alexandria STLs shall provide non-destructive run-time diagnostics.
+IPFEAT-371,IP Feature,"PRD [FuSa] Alexandria STLs shall when resuming from an interrupt, restore to fail-safe checkpoint within TBD latency",P0_Showstopper,Backlog,5/23/2025,,"Alexandria STLs shall when resuming from an interrupt, restore to fail-safe checkpoint within TBD latency"
+IPFEAT-288,IP Feature,PRD [FuSa] All Alexandria firmware & software components shall be developed to meet ASIL-D requirements.,P2_Normal,Backlog,5/30/2025,,PRD [FuSa] All Alexandria firmware & software components shall be developed to meet ASIL-D requirements.  
+IPFEAT-284,IP Feature,PRD [FuSa] STLs for achieving ASIL-B (if applicable) shall have less than a 5% performance impact to SPEC and Dhrystone benchmark targets.,P2_Normal,Backlog,4/30/2025,,PRD [FuSa] STLs for achieving ASIL-B (if applicable) shall have less than a 5% performance impact to SPEC and Dhrystone benchmark targets.
+IPFEAT-335,IP Feature,PRD [Interrupt Handling]   Alexandria CPU shall support 255 interrupt identifiers for M-mode interrupt file and S-mode interrupt file.,P0_Showstopper,Backlog,5/27/2025,,The AIA shall support 255 interrupt identifiers
+IPFEAT-334,IP Feature,PRD [Interrupt Handling] Alexandria CPU cores shall implement Resumable non-maskable interrupt (NMRI) smrnmi instead of NMI,P0_Showstopper,Backlog,5/23/2025,,Alexandria CPU cores shall implement Resumable non-maskable interrupt (NMRI) smrnmi instead of NMI
+IPFEAT-333,IP Feature,"PRD [Interrupt Handling] Alexandria CPU cores shall implement the RISC-V Advanced Interrupt Architecture (AIA) specification. smaia, ssaia only. MSI shall be supported.",P0_Showstopper,Backlog,5/23/2025,,"Alexandria CPU cores shall implement the RISC-V Advanced Interrupt Architecture (AIA) specification. smaia, ssaia only. MSI shall be supported."
+IPFEAT-394,IP Feature,PRD [Interrupt Handling] Alexandria CPU shall implement Resumable non-maskable interrupt (NMRI) smrnmi as non-maskable interrupt.,P0_Showstopper,Backlog,5/28/2025,,Alexandria CPU shall implement Resumable non-maskable interrupt (NMRI) smrnmi as non-maskable interrupt.
+IPFEAT-393,IP Feature,PRD [Interrupt Handling] Alexandria CPU shall support 5 Guest Supervisor Interrupt files and each interrupt file supports 63 interrupt identifiers,P0_Showstopper,Backlog,5/28/2025,,Alexandria CPU shall support 5 Guest Supervisor Interrupt files and each interrupt file supports 63 interrupt identifiers
+IPFEAT-336,IP Feature,PRD [Interrupt Handling] Alexandria CPU shall support 5 Guest Supervisor Interrupt files,P0_Showstopper,Backlog,5/23/2025,,Alexandria CPU shall support 5 Guest Supervisor Interrupt files
+IPFEAT-327,IP Feature,PRD [Memory subsystem]   Alexandria CPU cores shall have private L1 Instruction and Data cache,P0_Showstopper,Backlog,5/27/2025,,"Alexandria CPU cores shall multi-level cache hierarchy (L1 I/D, L2 shared)"
+IPFEAT-388,IP Feature,PRD [Memory subsystem]  Alexandria CPU cores shall implement weak memory ordering model adhering to the RISC-V memory consistency model. (RVWMO),P0_Showstopper,Backlog,5/23/2025,,Alexandria CPU cores shall implement weak memory ordering model adhering to the RISC-V memory consistency model. (RVWMO)
+IPFEAT-407,IP Feature,PRD [Memory Subsystem] Alexandria cluster L2 cache shall support L2 IO coherence.,P0_Showstopper,Backlog,6/13/2025,,Alexandria cluster L2 cache shall support L2 IO coherence.
+IPFEAT-392,IP Feature,PRD [Memory Subsystem] Alexandria cluster L2 cache shall be NINE of the L1 cache,P0_Showstopper,Backlog,5/30/2025,,Alexandria cluster L2 cache shall be NINE of the L1 cache
+IPFEAT-391,IP Feature,PRD [Memory Subsystem] Alexandria clusters shall have shared L2 cache,P0_Showstopper,Backlog,5/28/2025,,Alexandria clusters shall have shared L2 cache
+IPFEAT-330,IP Feature,PRD [Memory subsystem] Alexandria CPU cores shall implement cache coherence mechanisms for multi-core configurations.,P0_Showstopper,Backlog,5/23/2025,,Alexandria CPU cores shall implement cache coherence mechanisms for multi-core configurations.
+IPFEAT-329,IP Feature,PRD [Memory subsystem] Alexandria CPU cores shall implement a MMU with TLBs,P0_Showstopper,Backlog,5/23/2025,,Alexandria CPU cores shall implement a MMU with TLBs
+IPFEAT-328,IP Feature,"PRD [Memory subsystem] Alexandria CPU cores shall support Sv39, Sv48 and Sv57 virtual memory with TLBs",P0_Showstopper,Backlog,5/29/2025,,"Alexandria CPU cores shall support Sv39, Sv48 and Sv57 virtual memory"
+IPFEAT-396,IP Feature,PRD [Multi-core (Cluster) Configurations] Alexandria shall support a multi-core configuration (cluster) of 4 CPUs with 4MB L2 shared cache,P0_Showstopper,Backlog,6/4/2025,,Alexandria shall support a multi-core configuration (cluster) of 4 CPUs with 4MB L2 shared cache
+IPFEAT-351,IP Feature,"PRD [Multi-core (Cluster) Configurations] Alexandria clusters shall support Reset, Clock, Memory, RAS Error Int, Cluster ID pins and Debug interfaces.",P0_Showstopper,Backlog,5/23/2025,,"Alexandria clusters shall support Reset, Clock, Memory, RAS Error Int, Cluster ID pins and Debug interfaces."
+IPFEAT-350,IP Feature,PRD [Multi-core (Cluster) Configurations] Alexandria shall support a multi-core configuration (cluster) of 8 CPUs with 12MB L2 shared cache,P0_Showstopper,Backlog,5/23/2025,,Alexandria shall support a multi-core configuration (cluster) of 8 CPUs with 12MB L2 shared cache
+IPFEAT-349,IP Feature,PRD [Multi-core (Cluster) Configurations] Alexandria shall support a multi-core configuration (cluster) of 2 CPUs with 4MB L2 shared cache,P1_Major,Backlog,5/23/2025,,Alexandria shall support a multi-core configuration (cluster) of 2 CPUs with 2MB L2 shared cache
+IPFEAT-348,IP Feature,"PRD [Multi-core (Cluster) Configurations] Alexandria clusters shall support Debug Unit, JTAG Debug Transport Module (DTM) and Debug Module (DM)",P0_Showstopper,Backlog,5/23/2025,,"Alexandria clusters shall support Debug Unit, JTAG Debug Transport Module (DTM) and Debug Module (DM)"
+IPFEAT-347,IP Feature,PRD [Multi-core (Cluster) Configurations] Alexandria clusters shall support N-Trace trace unit.,P0_Showstopper,Backlog,5/23/2025,,Alexandria clusters shall support N-Trace trace unit.
+IPFEAT-346,IP Feature,PRD [Multi-core (Cluster) Configurations] Alexandria clusters shall support Cluster Internal Network.,P0_Showstopper,Backlog,5/23/2025,,Alexandria clusters shall support Cluster Internal Network.
+IPFEAT-308,IP Feature,"PRD [Other] Alexandria documentation shall be made avaialble to end-user (Datasheet, User Manual, Safety Manual, Integration Guide)",P2_Normal,Backlog,5/23/2025,,PRD [Other] Documentation
+IPFEAT-43,IP Feature,PRD [Other] Alexandria shall allow for 3rd party BIST implementations.,P0_Showstopper,Under Review,5/23/2025,,"Alexandria shall not prevent an integrator from implementing their own MBIST solution
+
+
+
+LBIST
+
+MBIST
+
+Memory Protection (ECC/Parity)"
+IPFEAT-306,IP Feature,PRD [Other] Alexandria shall allow for 3rd party DFT implementations.,P2_Normal,Backlog,5/23/2025,,PRD [Other] Alexandria shall allow for 3rd party DFT implementations.
+IPFEAT-307,IP Feature,PRD [Other] Alexandria shall be developed with AEC-Q100 Grade 2 qualification process as applicable to soft IP (Reliability),P2_Normal,Backlog,5/23/2025,,PRD [Other] Alexandria shall be developed with AEC-Q100 Grade 2 qualification process as applicable to soft IP
+IPFEAT-305,IP Feature,PRD [Other] Alexandria shall be fully synthesizable RTL soft IP,P2_Normal,Backlog,5/23/2025,,PRD [Other] Alexandria shall be a fully synthesizable soft IP
+IPFEAT-304,IP Feature,PRD [Other] Alexandria shall support the ability for individual CPU cores to have run-time LBIST,P2_Normal,Backlog,5/23/2025,,PRD [Other] Alexandria shall support the ability for individual CPU cores to have LBIST run on them at runtime
+IPFEAT-309,IP Feature,PRD [Other] Evaluate FIRRTL/CHISEL datapath in Ascalon D8 implications for Auto,P2_Normal,Backlog,4/30/2025,,PRD [Other] Evaluate FIRRTL/CHISEL datapath in Ascalon D8 implications for Auto
+IPFEAT-254,IP Feature,PRD [PDK]  Alexandria shall use the target process node for SOP of TSMC N5A,P0_Showstopper,Backlog,4/30/2025,,Alexandria shall use the target process node for SOP of TSMC N5A
+IPFEAT-256,IP Feature,PRD [PDK] Alexandria may use the target process node for SOP of TSMC N7A,P2_Normal,Backlog,5/23/2025,, Alexandria may use the target process node for SOP of TSMC N7A
+IPFEAT-255,IP Feature,PRD [PDK] Alexandria may use the target process node for SOP of TSMC N4,P1_Major,Backlog,5/23/2025,,Alexandria may use the target process node for SOP of TSMC N4
+IPFEAT-272,IP Feature,PRD [Perf] Alexandria clusters shall achieve SPECint_rate 2006 / GHz peak score within 5% linenarly scaled per core count (multi-core),P2_Normal,Backlog,5/23/2025,,Shall be within 5% of linear scaling
+IPFEAT-390,IP Feature,PRD [Perf] Alexandria clusters shall have less than a 20% SPEC score degradation as compared to single core performance.,P0_Showstopper,Backlog,5/23/2025,,Alexandria clusters shall have less than a 20% SPEC score degradation as compared to single core performance.
+IPFEAT-273,IP Feature,PRD [Perf] Alexandria CPU core shall achieve at least 2.1 SPECint2017 / GHz (single core),P2_Normal,Backlog,5/23/2025,,PRD [Perf] Alexandria cores shall achieve at least 2.1 SPECint2017 / GHz (single core)
+IPFEAT-271,IP Feature,"PRD [Perf] Alexandria CPU core shall achieve at least 22 SPECint2006 / GHz, peak score (single core)",P2_Normal,Backlog,5/23/2025,,MVP: >20/GHz. ASC = 22 as of 4/25
+IPFEAT-253,IP Feature,"PRD [Perf] Alexandria CPU core shall achieve at least 20 SPECint2006 / GHz, base score (single core)",P0_Showstopper,Backlog,5/23/2025,,MVP: >18.2 /GHz SpecINT2k6 without software optimization ASC = 20.44 as of 4/25
+IPFEAT-49,IP Feature,"PRD [Perf] Alexandria CPU core shall run at an Fmax minimun of 2.25 GHz sustained frequency in TSMC N3A Vdd = Vnom - 10%, SS, -40C to 125C Tj, Ta max = 105C",P0_Showstopper,Under Review,5/23/2025,,"Per MRD:
+Ta = 105°C & Tj = 125°C - To comply with AEC-Q100 Grade 2 (-40°C to 105°C ambient)
+
+
+shall meet timing closure at 2GHz at -40C to 125C Tj, SS< Vdd = Vnom - 10%V (0.675 N5A)"
+IPFEAT-220,IP Feature,PRD [Perf] Alexandria shall achieve at least 25.27 Dmips / Mhz Dhrystone,P0_Showstopper,Backlog,5/23/2025,,"25.27 Dmips/MHz
+
+
+When conducting benchmarks it is open to turn off safety mechanism
+
+For reference:
+
+||*Benchmark*||*A720 Score*||*Alexandria Score*||
+|Dhrystone/MHz|~13.6|>9.5 (ASC -5% max)|
+|SPECint 2006 / GHz|17.2|>17.9 (ASC -5% max)|"
+IPFEAT-386,IP Feature,"PRD [Power] Alexandria Static Power (including leakage) should be less than 1.2W (Dhrystone), 2.1W (Virus) for 1 CPU core + 1/8 SC",P1_Major,Backlog,5/23/2025,,"Alexandria Static Power (including leakage) should be less than 1.2W (Dhrystone), 2.1W (Virus) for 1 CPU core + 1/8 SC"
+IPFEAT-385,IP Feature,"PRD [Power] Alexandria Static Power (including leakage) shall be less than 1.69 W (Dhrystone), 3.4 W (Virus) for 1 CPU core + 1/8 SC",P0_Showstopper,Backlog,5/23/2025,,"Alexandria Static Power (including leakage) shall be less than 1.69 W (Dhrystone), 3.4 W (Virus) for 1 CPU core + 1/8 SC"
+IPFEAT-274,IP Feature,PRD [Process Node]    Alexandria Fmax should be greater than 2.375 GHz on SF4X,P2_Normal,Backlog,5/23/2025,,Shall be within 3-5% of Ascalon D8 under same technology node
+IPFEAT-278,IP Feature,PRD [Process Node] Alexandria core area as compared to Ascalon D8,P2_Normal,Backlog,4/28/2025,,PRD [Process Node] Alexandria core area as compared to Ascalon D8
+IPFEAT-275,IP Feature,PRD [Process Node] Alexandria core power consumption as compared to Ascalon D8,P2_Normal,Backlog,4/30/2025,,PRD [Process Node] Alexandria core power consumption as compared to Ascalon D8
+IPFEAT-277,IP Feature,PRD [Process Node] Alexandria Dyhamic Power should be less than 0.40 W/GHz (Dhrystone) and 0.75W/GHz (Virus) for 1 CPU core + 1/8 SC,P1_Major,Backlog,5/30/2025,,P1: -20% reduction compared to Ascalon D8
+IPFEAT-276,IP Feature,PRD [Process Node] Alexandria Dynamic Power shall be less than 0.51/GHz (Dhrystone) and 0.95W/GHz (Virus) for 1 CPU core + 1/8 SC,P2_Normal,Backlog,5/23/2025,,P0: +3% reduction compared to Ascalon D8
+IPFEAT-281,IP Feature,PRD [Process Node] Alexandria shall target a utilization rate to a minimum of 65% for core and cluster,P2_Normal,Backlog,5/23/2025,,Cluster is expected to increase due to FuSa components
+IPFEAT-387,IP Feature,PRD [Process Node] Alexandria shall use the target process node for SOP of TSMC N3A,P0_Showstopper,Backlog,5/23/2025,,Alexandria shall use the target process node for SOP of TSMC N3A
+IPFEAT-280,IP Feature,PRD [Process Node] Alexandria single core shall have an area of less than 1.07 mm2 @N3A,P1_Major,Backlog,5/30/2025,,P0: -20% reduction compared to Ascalon D8
+IPFEAT-279,IP Feature,PRD [Process Node] Alexandria single core shall have an area of less than 1.39 mm2 @N3A ,P2_Normal,Backlog,5/23/2025,,P0: +4% reduction compared to Ascalon D8
+IPFEAT-345,IP Feature,PRD [QoS] Alexandria CPU cores shall implement cbqti RISC-V Capacity and Bandwidth QoS regiser interface,P0_Showstopper,Backlog,5/23/2025,,Alexandria CPU cores shall implement cbqti RISC-V Capacity and Bandwidth QoS regiser interface
+IPFEAT-344,IP Feature,PRD [QoS] Alexandria CPU cores shall implement ssqosid Quality of Service identifiers.,P0_Showstopper,Backlog,5/23/2025,,Alexandria CPU cores shall implement ssqosid Quality of Service identifiers.
+IPFEAT-323,IP Feature,PRD [RVA23 Compliance] Alexandria CPU cores shall implement xttzvqdot extension,P0_Showstopper,Backlog,5/23/2025,,Alexandria CPU cores shall implement xttzvqdot extension
+IPFEAT-322,IP Feature,PRD [RVA23 Compliance] Alexandria CPU cores shall implement smstaten extension,P0_Showstopper,Backlog,5/23/2025,,Alexandria CPU cores shall implement smstaten extension
+IPFEAT-321,IP Feature,PRD [RVA23 Compliance] Alexandria CPU cores shall implement smmpm extension,P0_Showstopper,Backlog,5/23/2025,,Alexandria CPU cores shall implement smmpm extension
+IPFEAT-320,IP Feature,PRD [RVA23 Compliance] Alexandria CPU cores shall implement smnpm extension,P0_Showstopper,Backlog,5/23/2025,,Alexandria CPU cores shall implement smnpm extension
+IPFEAT-319,IP Feature,PRD [RVA23 Compliance] Alexandria CPU cores shall implement writable mtvec (mask = 0xxfffffffffffffffd),P0_Showstopper,Backlog,5/23/2025,,Alexandria CPU cores shall implement writable mtvec (mask = 0xxfffffffffffffffd)
+IPFEAT-318,IP Feature,PRD [RVA23 Compliance] Alexandria CPU cores shall implement writable misa (mask = 0x341029),P0_Showstopper,Backlog,5/23/2025,,Alexandria CPU cores shall implement writable misa (mask = 0x341029)
+IPFEAT-37,IP Feature,PRD [S/W] The RISC-V Compiler and toolchain for Alexandria shall be qualified to meet ASIL D requirements,P0_Showstopper,Under Review,5/30/2025,,"Qualify software tools
+
+Ensure we utilize qualified open source / commercial tools"
+IPFEAT-290,IP Feature,PRD [Schedule] Alexandria devlopment efforts shall adhere to the following Schedule,P2_Normal,Backlog,6/1/2025,,"Beta: Q4 2025 (Oct. 30, 2025) 
+
+LA: Q1 2026 (Jan. 30, 2026)
+
+EA: Q2 2026 (March 30, 2026)
+
+GA: T.B.D"
+IPFEAT-343,IP Feature,"PRD [Security Features] Alexandria CPU cores shall implement Reliability, Availability and Serviceability (RAS) to comply with the RISC-V RAS specification.",P0_Showstopper,Backlog,5/23/2025,,"Alexandria CPU cores shall implement Reliability, Availability and Serviceability (RAS) to comply with the RISC-V RAS specification."
+IPFEAT-342,IP Feature,PRD [Security Features] Alexandria CPU cores shall support RISC-V security extensions.,P0_Showstopper,Backlog,5/28/2025,,Alexandria CPU cores shall support RISC-V security extensions. (Nothing called out in ASC spec.)
+IPFEAT-341,IP Feature,PRD [Security Features] Alexandria CPU cores shall implement physical memory protection (PMP),P0_Showstopper,Backlog,5/23/2025,,Alexandria CPU cores shall implement physical memory protection (PMP)
+IPFEAT-340,IP Feature,"PRD [Security Features] Alexandria CPU cores shall support Machine, Hypervisor and Supervisor priveledge modes.",P0_Showstopper,Backlog,5/23/2025,,"Alexandria CPU cores shall support Machine, Hypervisor and Supervisor priveledge modes."
+IPFEAT-389,IP Feature,PRD [Security Features] Alexandria shall implement front-end security to mitigate against speculative side channel attacks.,P0_Showstopper,Backlog,5/23/2025,,Alexandria shall implement front-end security to mitigate against speculative side channel attacks.
+IPFEAT-289,IP Feature,PRD [Security] Alexandria shall support ISO21434 process for at least threat analysis ,P2_Normal,Backlog,4/28/2025,,Cybersecurity standard for Automotive
+IPFEAT-409,IP Feature,"PRD [Software] Alexandria boot & startup code shall implement safe, deterministic power-on and warm-restart routines; early self-tests and hardware diagnostics.",P0_Showstopper,Backlog,6/13/2025,,"Alexandria boot & startup code shall implement safe, deterministic power-on and warm-restart routines; early self-tests and hardware diagnostics."
+IPFEAT-408,IP Feature,"PRD [Software] Alexandria HAL shall implement platform-abstraction APIs for peripherals, CSR access, timer, PLIC, and CLINT, adhering to RVA23 CSR layout.",P0_Showstopper,Backlog,6/13/2025,,"Alexandria HAL shall implement platform-abstraction APIs for peripherals, CSR access, timer, PLIC, and CLINT, adhering to RVA23 CSR layout."
+IPFEAT-413,IP Feature,PRD [Software] Alexandria memory protection shall implement PMP abstraction layer for isolation and fault containment.,P0_Showstopper,Backlog,6/13/2025,,Alexandria memory protection shall implement PMP abstraction layer for isolation and fault containment.
+IPFEAT-411,IP Feature,"PRD [Software] Alexandria safety library shall implement pre-certified (or certifiable) math, memory, and control libraries with fault detection mechanisms.",P0_Showstopper,Backlog,6/13/2025,,"Alexandria safety library shall implement pre-certified (or certifiable) math, memory, and control libraries with fault detection mechanisms."
+IPFEAT-410,IP Feature,"PRD [Software] Alexandria safety self-tests shall implement CPU register, PC, ALU, FPU, and memory BISTs (LBIST/MBIST integration hooks).",P0_Showstopper,Backlog,6/13/2025,,"Alexandria safety self-tests shall implement CPU register, PC, ALU, FPU, and memory BISTs (LBIST/MBIST integration hooks)."
+IPFEAT-412,IP Feature,"PRD [Software] Alexandria shall support safety RTOS (SafeRTOS, Zephyr with Safety Extension, or AUTOSAR OS); task isolation and watchdog integration.",P0_Showstopper,Backlog,6/13/2025,,"Alexandria shall support safety RTOS (SafeRTOS, Zephyr with Safety Extension, or AUTOSAR OS); task isolation and watchdog integration."
+IPFEAT-417,IP Feature,"PRD [Software] Alexandria software configuration shall implement a YAML/JSON-based configuration layer for soft IP integration, allowing adaptation to different system instances.",P0_Showstopper,Backlog,6/13/2025,,"Alexandria software configuration shall implement a YAML/JSON-based configuration layer for soft IP integration, allowing adaptation to different system instances."
+IPFEAT-415,IP Feature,"PRD [Software] Alexandria software diagnostoic framework shall implement APIs for runtime diagnostics, including end-to-end communication tests, CRCs, heartbeat monitors, etc.",P0_Showstopper,Backlog,6/13/2025,,"Alexandria software diagnostoic framework shall implement APIs for runtime diagnostics, including end-to-end communication tests, CRCs, heartbeat monitors, etc."
+IPFEAT-414,IP Feature,"PRD [Software] Alexandria software interrupt architecture shall implement a configurable interrupt handler framework supporting CLINT and APLIC with nesting, masking, and determinism.",P0_Showstopper,Backlog,6/13/2025,,"Alexandria software interrupt architecture shall implement a configurable interrupt handler framework supporting CLINT and APLIC with nesting, masking, and determinism."
+IPFEAT-416,IP Feature,"PRD [Software] Alexandria software logging and traceability shall implement structured logging for safety events, with optional trace instrumentation points.",P0_Showstopper,Backlog,6/13/2025,,"Alexandria software logging and traceability shall implement structured logging for safety events, with optional trace instrumentation points."
+IPFEAT-427,IP Feature,PRD [Software] Alexandria software shall be compatible with `newlib` or other lightweight C runtime libraries,P0_Showstopper,Backlog,6/13/2025,,Alexandria software shall be compatible with `newlib` or other lightweight C runtime libraries
+IPFEAT-426,IP Feature,PRD [Software] Alexandria software shall be compatible with GCC and LLVM RISC-V toolchains,P0_Showstopper,Backlog,6/13/2025,,Alexandria software shall be compatible with GCC and LLVM RISC-V toolchains
+IPFEAT-429,IP Feature,PRD [Software] Alexandria software shall be testable with RISCOF/ISA validation software,P0_Showstopper,Backlog,6/13/2025,,Alexandria software shall be testable with RISCOF/ISA validation software
+IPFEAT-430,IP Feature,"PRD [Software] Alexandria software shall expose debug-visible state (PC, privilege level) to firmware/software tools",P0_Showstopper,Backlog,6/13/2025,,"Alexandria software shall expose debug-visible state (PC, privilege level) to firmware/software tools"
+IPFEAT-421,IP Feature,PRD [Software] Alexandria software shall implement Zifencei Required to ensure software can manage instruction cache coherency,P0_Showstopper,Backlog,6/13/2025,,Alexandria software shall  implement Zifencei Required to ensure software can manage instruction cache coherency
+IPFEAT-420,IP Feature,"PRD [Software] Alexandria software shall implement Zicsr Required for CSR manipulation (e.g., `mstatus`, `mie`) from software",P0_Showstopper,Backlog,6/13/2025,,"Alexandria software shall  implement Zicsr Required for CSR manipulation (e.g., `mstatus`, `mie`) from software"
+IPFEAT-419,IP Feature,"PRD [Software] Alexandria software shall implement M-extension (for `mul`, `div`, etc.) Required for full compiler math support",P0_Showstopper,Backlog,6/13/2025,,"Alexandria software shall  implement M-extension (for `mul`, `div`, etc.) Required for full compiler math support"
+IPFEAT-418,IP Feature,"PRD [Software] Alexandria software shall implement RV32I Base Integer ISA‚ Required, for compiling and running C code",P0_Showstopper,Backlog,6/13/2025,,"Alexandria software shall implement RV32I Base Integer ISA‚ Required, for compiling and running C code"
+IPFEAT-431,IP Feature,"PRD [Software] Alexandria software shall include a programmer manual (CSR list, trap behavior, privilege details)",P0_Showstopper,Backlog,6/13/2025,,"Alexandria software shall include a programmer manual (CSR list, trap behavior, privilege details)"
+IPFEAT-432,IP Feature,PRD [Software] Alexandria software shall provide software examples and toolchain integration guide,P0_Showstopper,Backlog,6/13/2025,,Alexandria software shall provide software examples and toolchain integration guide
+IPFEAT-424,IP Feature,"PRD [Software] Alexandria software shall support atomic word access (AMO swap, compare-and-swap) Required for software synchronization",P0_Showstopper,Backlog,6/13/2025,,"Alexandria software shall support atomic word access (AMO swap, compare-and-swap) Required for software synchronization"
+IPFEAT-425,IP Feature,PRD [Software] Alexandria software shall support for misaligned memory access handling via trap Ensures compliant compiler behavior,P0_Showstopper,Backlog,6/13/2025,,Alexandria software shall support for misaligned memory access handling via trap Ensures compliant compiler behavior
+IPFEAT-428,IP Feature,PRD [Software] Alexandria software shall support interrupt and timer handler software,P0_Showstopper,Backlog,6/13/2025,,Alexandria software shall support interrupt and timer handler software
+IPFEAT-422,IP Feature,PRD [Software] Alexandria software shall support Machine mode (M-mode) Base requirement for bare-metal and RTOS software,P0_Showstopper,Backlog,6/13/2025,,Alexandria software shall support Machine mode (M-mode) Base requirement for bare-metal and RTOS software
+IPFEAT-423,IP Feature,PRD [Software] Alexandria software shall support trap/interrupt handling in M-mode Required to write handlers in C/assembly,P0_Showstopper,Backlog,6/13/2025,,Alexandria software shall support trap/interrupt handling in M-mode Required to write handlers in C/assembly
+IPFEAT-326,IP Feature,PRD [Superscalar Execution] Alexandria CPU cores shall support advanced branch prediction.,P0_Showstopper,Backlog,5/23/2025,,Alexandria CPU cores shall support advanced branch prediction.
+IPFEAT-325,IP Feature,PRD [Superscalar Execution] Alexandria CPU cores shall support out-of-order execution with register renaming and speculative execution.,P0_Showstopper,Backlog,5/23/2025,,Alexandria CPU cores shall support out-of-order execution with register renaming and speculative execution.
+IPFEAT-324,IP Feature,"PRD [Superscalar Execution] Alexandria CPU cores shall fetch, decode and execute multiple instructions per clock cycle",P0_Showstopper,Backlog,5/23/2025,,"Alexandria CPU cores shall fetch, decode and execute multiple instructions per clock cycle"
+IPFEAT-300,IP Feature,PRD [SW] Alexandria shall support Android Auto wrt architectural components,P2_Normal,Backlog,5/23/2025,,PRD [SW] Alexandria shall support Android Auto wrt architectural components
+IPFEAT-298,IP Feature,PRD [SW] Alexandria shall support automotive grade Linux (AGL) wrt architectural components,P2_Normal,Backlog,5/23/2025,,PRD [SW] Alexandria shall support automotive grade Linux (AGL) wrt architectural components
+IPFEAT-299,IP Feature,PRD [SW] Alexandria shall support QNX wrt architectural components,P2_Normal,Backlog,5/23/2025,,PRD [SW] Alexandria shall support QNX wrt architectural components
+IPFEAT-303,IP Feature,PRD [SW] All necessary drivers for Alexandria core and cluster components shall be provided within the Alexandria BSP.,P2_Normal,Backlog,4/30/2025,,PRD [SW] All necessary drivers for Alexandria core and cluster components shall be provided within the Alexandria BSP.
+IPFEAT-352,IP Feature,PRD [SW] An Alexandria Software Development Kit (SDK) shall be produced.,P0_Showstopper,Backlog,5/23/2025,,An Alexandria Software Development Kit (SDK) shall be produced.
+IPFEAT-302,IP Feature,PRD [SW] Secure boot process flow and assets shall be provided witihin the Alexandria SDK,P2_Normal,Backlog,4/30/2025,,PRD [SW] Secure boot process flow and assets shall be provided witihin the Alexandria SDK
+IPFEAT-376,IP Feature,PRD [Testability] Alexandria shall support Design for Testability (DFT),P0_Showstopper,Backlog,5/23/2025,,Alexandria shall support Design for Testability (DFT)
+IPFEAT-332,IP Feature,PRD [Vector Processing Unit] Alexandria CPU cores shall implement a vector processing unit supporting the RISC-V Vector (V) extension.,P0_Showstopper,Backlog,5/23/2025,,Alexandria CPU cores shall implement a vector processing unit supporting the RISC-V Vector (V) extension.
+IPFEAT-296,IP Feature,PRD [Verif] Alexandria shall have a emulator reference flow in Zebu,P2_Normal,Backlog,4/30/2025,,PRD [Verif] Alexandria shall have a emulator reference flow in Zebu
+IPFEAT-297,IP Feature,PRD [Verif] Alexandria shall have a prototyping reference flow in HAPs,P2_Normal,Backlog,4/30/2025,,PRD [Verif] Alexandria shall have a prototyping reference flow in HAPs
+IPFEAT-295,IP Feature,PRD [Verif] Alexandria shall have a unit-level test of at minimun the 4-core cluster,P2_Normal,Backlog,5/23/2025,,Sam?? Product shall have a unit-level test of 4-core cluster
+IPFEAT-377,IP Feature,PRD [Verification] Alexandria shall be rigorously verified using formal and simulation.,P0_Showstopper,Backlog,5/23/2025,,Alexandria shall be rigorously verified using formal and simulation.
+IPFEAT-379,IP Feature,PRD [Verification] Alexandria shall leverage UVM-based verification envoronment.,P0_Showstopper,Backlog,5/23/2025,,Alexandria shall leverage UVM-based verification envoronment.
+IPFEAT-378,IP Feature,PRD [Verification] Alexandria shall use ISO 26262 compliant verification process.,P0_Showstopper,Backlog,5/23/2025,,Alexandria shall use ISO 26262 compliant verification process.
+IPFEAT-310,IP Feature,PRD: Alexandria Cluster Power Management Logic (CPL) shall meet ASIL-D reqs,P2_Normal,Backlog,5/29/2025,,"  Alexandria shall implement a power management unit 
+Decision needed, in cluster our outside of cluster?"

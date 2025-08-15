@@ -1,0 +1,26 @@
+Chiplets are small, specialized IC components designed to work together within a single package, effectively forming a multi-chip module. Instead of manufacturing a large, complex monolithic chip, companies can build systems by connecting multiple chiplets—for example, CPU, memory, or I/O modules—using advanced interconnect technologies. This approach allows for greater flexibility, scalability, and efficiency in semiconductor design, **helping mitigate yield issues, reduce costs, and accelerate development cycles.** For companies like Tenstorrent in the semiconductor industry, chiplets enable rapid innovation in AI processors, allowing them to mix-and-match the best process nodes and technologies for different functions, and to create powerful, customizable computing platforms faster and more cost-effectively than traditional monolithic chip designs.
+
+## [[Grendel]]
+Grendel is Tenstorrent’s next generation heterogenous AI architecture. It is a multi-chiplet solution that comprises of an [[Athena]] chiplet featuring high-performance [[TT - Ascalon]] RISC-V general-purpose cores, a [[Quasar]] chiplet with [[TT - Tensix]] cores, a memory chiplet called Mimir and IO chiplet called [[Keraunos]].
+### [[Athena]]
+Athena chiplet contains the Ascalon RISC-V cores, Coherent Fabric, Die-to-Die high-speed interconnects for AI accelerator, PCI Express, LPDDR5X, and System Management Units.
+### [[Quasar]]
+Quasar is the fourth generation of AI/ML accelerator devices from TT. It leverages many of the idea from previous black hole generation, but encapsulates these into a chiplet rather than a conventional monolithic chip.
+### [[Mimir]]
+Mimir is a family of memory chiplets in the Grendel ecosystem. These memory chiplets are built to support the compute chiplets Athena and Quasar. It provides support for GDDR7 memory.
+### [[Keraunos]]
+Keraunos is a family of I/O interface chiplets in the Grendel chiplet ecosystem. It provides a glue-less scale-out interface for Quasar, where Quasar-to-Quasar interconnect across Grendel packages is carried over 400G or 800G Ethernet.
+
+Draft from [[White Paper - Alexandria Auto|IP Whitepaper]]:
+## **Off the shelf compute
+
+Traditional monolithic SoCs have powered most automotive systems but not everyone needs the same chips. The evolution of AI-Driven ADAS, vehicles now require 500-1000 TOPS of compute performance for L3+ applications. Additionally, the compute demand for IVI systems is rising with the prospects of Edge AI applications. The automotive sector is undergoing a paradigm shift with the next generation requiring deterministic and flexible systems for an ever-evolving AI landscape.
+
+*Something similar but replace DC with AD concept*
+![[Pasted image 20250630124717.png]]
+
+An Open Chiplet Architecture directly addresses the challenges faced by automotive silicon designers. Chiplets enable OEMs and Tier 1 suppliers to integrate best-in-class IP blocks and tailor compute capabilities, allowing for effective differentiation.
+
+| > **IP sourcing and integration flexibility**<br><br>Chiplet ecosystem allows integration with cutting-edge IP from multiple vendors, reducing long-term commitments and fostering innovation. The ability to mix and match AI accelerators, CPUs and I/O chips enables OEMs to develop unique market specific customizations to bolster a competitive advantage. | > **Accelerated timeline**<br><br>Different pre-certified chiplets can be sourced, validated and integrated in parallel by specialized teams. Proven and implemented IP can be reused across products or generations, drastically reducing engineering costs and expedite innovation cycles.                                                                                                   |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| > **Optimized Yield & Cost**<br><br>Chiplet process technology can be tailored to its application and their smaller size results in a significantly higher yield. Simpler chiplets like I/O and memory can be made with a mature cost-effective process and HPC chiplets can utilize the most advanced nodes. This optimizes performance, cost and yield.         | > **Adaptable and Future-Proof**<br><br>Systems can be scaled with ease by adding or upgrading specific chiplets without a complete SoC redesign. Like OTA software updates, OEMs can introduce new feature or enhancement by adding or swapping to better chiplets. ADAS and IVI systems can be more rapidly adopted to market demands or regulatory changes without a complete SoC overhaul. |
