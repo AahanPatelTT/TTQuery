@@ -17,18 +17,9 @@ TTQuery is a complete RAG (Retrieval-Augmented Generation) system that transform
 - **Multi-Vector Embeddings**: Summary + full-content vectors for optimal recall
 - **Smart Reranking**: Cross-encoder reranking with MMR diversification
 - **Precise Citations**: Page-level source attribution with inline references
-
-### **🚀 Automated Pipeline**
-- **One-Command Setup**: Automated Parse → Chunk → Embed → Chat workflow
-- **Intelligent Caching**: Only reprocess changed files for rapid iteration
-- **Progress Tracking**: Real-time status with detailed error handling
-- **Multiple Providers**: Local, OpenAI, ColBERT, and BERT embedding options
-
-### **📚 Document Support**
-- **High-Fidelity Parsing**: PDF (with OCR), PowerPoint, Markdown, CSV, images
-- **Table Extraction**: Converts tables to searchable text with structure preservation
-- **Image Understanding**: Vision captioning + OCR + contextual enhancement
-- **Metadata Rich**: Preserves page numbers, headings, and document structure
+- **Table-aware prompting**: CSV/table chunks include a compact Markdown table preview (first rows/cols) during generation to preserve structure
+- **PPTX-native tables**: Extracts real PPTX tables into CSV at parse time for accurate table retrieval and reconstruction
+- **Slide cohesion**: Keeps slides atomic and adds small slide-window chunks for context; prompt stitches multiple chunks from the same deck coherently
 
 ## 🎯 **Quick Start**
 
@@ -117,20 +108,11 @@ python chat.py --session sessions/chat_session_20241215_143022.json
 
 ### **Basic Usage**
 ```
-💬 You: What is Ascalon's cache hierarchy?
+💬 You: Fetch the concept approval checklist for Alexandria
 
-🤖 Assistant (2.1s):
-Ascalon features a multi-level cache hierarchy designed for high performance...
-[1] According to the cache overview, it includes L1 instruction and data caches...
-
-📚 Sources:
-[1] ascalon_manual.pdf (page 15)
-[2] IPS-Ascalon CPU IP Cache Hierarchy Overview.pdf (page 3)
-
-💬 You: How does this compare to ARM processors?
-
-🤖 Assistant (1.8s):
-Based on our previous discussion about Ascalon's cache hierarchy, compared to ARM processors...
+🤖 Assistant:
+| ...reconstructed table... |
+[1] Slide 5: Concept Approval Checklist
 ```
 
 ### **Interactive Commands**
@@ -155,28 +137,13 @@ Question: What are the performance metrics for Tensix?
 Model: BAAI/bge-large-en-v1.5
 
 🔍 DENSE RETRIEVAL
-📊 Summary vector results (top 10):
-  1. [1234] tensix_manual.pdf - Performance benchmarks show...
-  2. [5678] performance_analysis.md - Tensix achieves...
+📊 Summary vector results (top 10)…
 
-🔍 SPARSE RETRIEVAL (BM25)
-📊 BM25 keyword results (top 10):
-  1. [9012] metrics_report.pdf - Key performance indicators...
+🔍 PPTX TABLES
+📑 Detected native PPTX table chunks (as CSV) on slides 5, 6…
 
-🔍 RECIPROCAL RANK FUSION (RRF)
-📊 Fused results after per-document capping (top 15):
-  1. [1234] tensix_manual.pdf
-  2. [5678] performance_analysis.md
-
-🔍 RERANKING
-📊 Cross-encoder reranked results (top 15):
-  1. [1234] tensix_manual.pdf
-       Performance benchmarks show Tensix achieving...
-
-🔍 FINAL CONTEXT (MMR DIVERSIFIED)
-📊 Selected contexts for LLM (8 chunks):
-  [1] tensix_manual.pdf (page 42)
-      Performance metrics indicate sustained throughput...
+🔍 FINAL CONTEXT (COHERENT)
+📊 Selected 10 contexts (prioritizing top document) stitched coherently
 ```
 
 ## 🔧 **Advanced Configuration**
@@ -222,7 +189,7 @@ python pipeline/embed.py \
 python pipeline/query.py \
   --question "Your question here" \
   --embeddings "artifacts/embeddings.jsonl" \
-  --topk 8 --timeout 60
+  --topk 10 --timeout 60
 ```
 
 ## 🧠 **System Architecture**
@@ -231,15 +198,15 @@ python pipeline/query.py \
 ```
 📁 Documents (PDF, PPTX, MD, CSV, Images)
     ↓
-🔍 Parse (unstructured.io + OCR + table extraction)
+🔍 Parse (unstructured.io + OCR + PPTX native table extraction)
     ↓
-✂️  Chunk (heading-aware + token-targeted + overlap)
+✂️  Chunk (heading-aware + token-targeted + overlap; slides atomic + windowed)
     ↓  
 🧠 Embed (multi-vector: summary + full-content)
     ↓
 💬 Chat Interface
     ↓
-🔍 Retrieve (dense + sparse + RRF + rerank + MMR)
+🔍 Retrieve (dense + sparse + RRF + rerank + MMR + doc-coherence)
     ↓
 🤖 Generate (Gemini 2.5 Pro + citations)
 ```
@@ -250,8 +217,8 @@ python pipeline/query.py \
 3. **Sparse Retrieval**: BM25 keyword matching for exact terms
 4. **Fusion**: Reciprocal Rank Fusion combines dense and sparse results
 5. **Reranking**: Cross-encoder scores query-document relevance
-6. **Diversification**: MMR reduces redundancy and increases coverage
-7. **Generation**: LLM produces cited answer from selected contexts
+6. **Coherent Contexting**: Prefer multiple chunks from the top document to maximize continuity
+7. **Generation**: LLM produces cited answer from selected contexts, preserving tables/lists
 
 ## ⚡ **Intelligent Caching System**
 
@@ -280,127 +247,17 @@ python pipeline/parse.py --cache-path "custom/cache.pkl"
 - ⚡ **Second run**: ~95% time reduction via cache hits
 - ⚡ **Incremental changes**: Only reprocess affected stages
 
-Cache files are stored in `artifacts/` with descriptive names:
-- `parsed_cache.pkl` - Parser cache (per-file metadata + parsed chunks)
-- `chunked_chunk_cache.pkl` - Chunking cache (input metadata + chunks)
-- `embeddings_embed_cache.pkl` - Embedding cache (input metadata + vectors)
-
-## 🎛️ **Embedding Providers**
-
-### **Local (Recommended)**
-```bash
-python initialize.py --provider local --embed-model BAAI/bge-large-en-v1.5
-```
-- High-quality retrieval model
-- No API costs
-- Privacy-preserving
-
-### **OpenAI**
-```bash
-python initialize.py --provider openai --embed-model text-embedding-3-small
-export OPENAI_API_KEY=your_key
-```
-- Managed service
-- Consistent performance
-- API costs apply
-
-### **ColBERT** 
-```bash
-python initialize.py --provider colbert --colbert-model colbert-ir/colbertv2.0
-```
-- Token-level embeddings
-- Late interaction scoring
-- Higher precision
-
-### **BERT (Fallback)**
-```bash
-python initialize.py --provider bert --bert-model bert-base-uncased
-```
-- Simple mean-pooled vectors
-- Lightweight option
-- Basic functionality
-
 ## 📊 **Output Artifacts**
 
 ### **Pipeline Outputs**
-- `artifacts/parsed.jsonl`: Normalized document elements with metadata
-- `artifacts/chunked.jsonl`: Token-targeted chunks with overlap
+- `artifacts/parsed.jsonl`: Normalized document elements with metadata (includes PPTX tables as CSV)
+- `artifacts/chunked.jsonl`: Token-targeted chunks with overlap; slides atomic + windowed
 - `artifacts/embeddings.jsonl`: Multi-vector embeddings with text
 
 ### **Session Files**
 - `session.json`: Conversation history with retrieval metadata
-- Export format includes timestamps, sources, and retrieval statistics
-
-### **Cache Files**
-- Automatic cache management with metadata validation
-- Persistent across runs with intelligent invalidation
 
 ## 🛠️ **Troubleshooting**
 
-### **Common Issues**
-
-**Environment Variables Not Set**
-```bash
-echo "API Key: $LITELLM_API_KEY"
-echo "Base URL: $LITELLM_BASE_URL"
-# Should show your configured values
-```
-
-**Missing Dependencies**
-```bash
-pip install -r requirements.txt
-# On macOS: brew install libmagic poppler tesseract
-```
-
-**Empty Knowledge Base**
-```bash
-# Check if embeddings file exists and has content
-ls -la artifacts/embeddings.jsonl
-wc -l artifacts/embeddings.jsonl
-```
-
-**LiteLLM Connection Issues**
-```bash
-# Test proxy connection
-python LiteLLM.py --prompt "Test connection" --timeout 10
-```
-
-### **Debug Mode**
-```bash
-# Verbose initialization
-python initialize.py --verbose
-
-# Verbose chat with session logging
-python chat.py --verbose --session debug_session.json
-```
-
-## 🚀 **Performance Tips**
-
-### **Optimization Strategies**
-- Use caching for iterative development (default behavior)
-- Adjust chunk size for your document types (`--target-tokens`)
-- Choose embedding provider based on accuracy vs. cost needs
-- Enable verbose mode only for debugging (impacts performance)
-
-### **Hardware Recommendations**
-- **Memory**: 8GB+ RAM for large document collections
-- **Storage**: SSD recommended for cache performance
-- **CPU**: Multi-core benefits embedding computation
-- **GPU**: Optional for local embedding models
-
-## 📚 **Documentation**
-
-- `HOW_IT_WORKS.md`: Technical implementation details
-- `pipeline/`: Individual stage documentation in docstrings
-- `/help` in chat: Interactive command reference
-
-## 🔐 **Security Notes**
-
-- Environment variables avoid secrets in code
-- Local processing preserves data privacy
-- Optional cloud embedding providers (OpenAI)
-- Session files may contain sensitive conversation data
-
----
-
-**🎯 Ready to transform your documents into intelligent conversations? Start with `python initialize.py` and then `python chat.py`!**
+- If tables appear missing in answers, ensure you re-parsed after the PPTX table update and re-embedded.
+- Set `TOKENIZERS_PARALLELISM=false` to silence HF fork warnings.

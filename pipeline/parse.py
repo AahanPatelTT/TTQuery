@@ -245,7 +245,8 @@ def parse_pdf(file_path: str) -> Iterator[ParsedChunk]:
 def parse_pptx(file_path: str) -> Iterator[ParsedChunk]:
     """Parse a PowerPoint deck into per-slide chunks using python-pptx.
 
-    We traverse shapes and text frames. This preserves slide-level citations.
+    We traverse shapes and text frames. Additionally, we extract native PPTX
+    tables and serialize them to CSV for table-aware retrieval and prompting.
     """
 
     try:
@@ -255,6 +256,24 @@ def parse_pptx(file_path: str) -> Iterator[ParsedChunk]:
             "python-pptx is required to parse PPTX. Install with 'pip install python-pptx'."
         ) from exc
 
+    # Helper to serialize a pptx table to CSV text
+    def _table_to_csv(tbl) -> str:
+        from io import StringIO
+        import csv as _csv
+        output = StringIO()
+        writer = _csv.writer(output)
+        try:
+            for row in tbl.rows:
+                cells = []
+                for cell in row.cells:
+                    # cell.text sometimes includes hard line breaks; normalize
+                    txt = (cell.text or "").replace("\r", " ").replace("\n", " ").strip()
+                    cells.append(txt)
+                writer.writerow(cells)
+            return output.getvalue().strip()
+        finally:
+            output.close()
+
     doc_id = compute_document_id(file_path)
     pres = Presentation(file_path)
     slide_count = len(pres.slides)
@@ -262,13 +281,12 @@ def parse_pptx(file_path: str) -> Iterator[ParsedChunk]:
     def slide_text(slide) -> str:
         texts: List[str] = []
         for shape in slide.shapes:
+            # Extract free text shapes
             if hasattr(shape, "text"):
-                # Simple case: text attribute present
                 txt = (shape.text or "").strip()
                 if txt:
                     texts.append(txt)
             elif hasattr(shape, "has_text_frame") and shape.has_text_frame:
-                # Text frame container
                 frame_texts: List[str] = []
                 for paragraph in shape.text_frame.paragraphs:
                     runs = [run.text for run in paragraph.runs]
@@ -280,6 +298,7 @@ def parse_pptx(file_path: str) -> Iterator[ParsedChunk]:
         return "\n\n".join(texts)
 
     for idx, slide in enumerate(pres.slides):
+        # Emit one chunk with slide narrative text
         text = slide_text(slide)
         locator = f"slide:{idx + 1}"
         chunk_id = compute_chunk_id(doc_id, locator, text)
@@ -295,6 +314,35 @@ def parse_pptx(file_path: str) -> Iterator[ParsedChunk]:
                 "file_name": os.path.basename(file_path),
             },
         )
+
+        # Emit separate chunks for each native PPTX table on this slide (as CSV)
+        table_index = 0
+        for shp in slide.shapes:
+            try:
+                if getattr(shp, "has_table", False) and shp.table is not None:
+                    table_index += 1
+                    csv_text = _table_to_csv(shp.table)
+                    if not csv_text.strip():
+                        continue
+                    t_locator = f"slide:{idx + 1}/table:{table_index}"
+                    t_chunk_id = compute_chunk_id(doc_id, t_locator, csv_text)
+                    yield ParsedChunk(
+                        id=t_chunk_id,
+                        document_id=doc_id,
+                        source_path=os.path.abspath(file_path),
+                        source_type="pptx",
+                        content=csv_text,
+                        metadata={
+                            "slide_number": idx + 1,
+                            "slide_count": slide_count,
+                            "file_name": os.path.basename(file_path),
+                            "table_index": table_index,
+                            "content_format": "csv",
+                            "extractor": "pptx",
+                        },
+                    )
+            except Exception:
+                continue
 
 
 def parse_docx(file_path: str) -> Iterator[ParsedChunk]:
@@ -400,7 +448,28 @@ def parse_csv(file_path: str) -> Iterator[ParsedChunk]:
             "pandas is required to parse CSV. Install with 'pip install pandas'."
         ) from exc
 
-    df = pd.read_csv(file_path)
+    # Robust delimiter inference: try default, then python engine auto-sep, then whitespace
+    def _read_csv_robust(path: str) -> "pd.DataFrame":
+        try:
+            df0 = pd.read_csv(path)
+            if df0.shape[1] > 1:
+                return df0
+        except Exception:
+            df0 = None
+        try:
+            df1 = pd.read_csv(path, sep=None, engine="python")
+            if df1.shape[1] > 1:
+                return df1
+        except Exception:
+            df1 = None
+        try:
+            df2 = pd.read_csv(path, delim_whitespace=True, engine="python")
+            return df2
+        except Exception:
+            # Final fallback: single-column placeholder
+            return pd.read_csv(path, header=None, engine="python")
+
+    df = _read_csv_robust(file_path)
     # Re-serialize to CSV text without the index
     text = df.to_csv(index=False)
     doc_id = compute_document_id(file_path)
@@ -417,6 +486,7 @@ def parse_csv(file_path: str) -> Iterator[ParsedChunk]:
             "num_cols": int(df.shape[1]),
             "columns": list(map(str, df.columns.tolist())),
             "file_name": os.path.basename(file_path),
+            "content_format": "csv",
         },
     )
 

@@ -25,81 +25,10 @@ import argparse
 import json
 import logging
 import os
-import pickle
 import sys
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Callable, Dict, Iterable, Iterator, List, Optional, Tuple
 import re
-
-
-# -------------------------------
-# Cache management
-# -------------------------------
-
-
-@dataclass
-class ChunkCacheEntry:
-    """Cache entry storing input file metadata and chunked results."""
-    input_file: str
-    input_mtime: float
-    input_size: int
-    config_hash: str  # Hash of chunking configuration
-    chunks: List[Dict[str, object]]
-
-
-def get_chunk_cache_path(output_path: str) -> str:
-    """Get cache file path based on output path."""
-    output_dir = os.path.dirname(output_path)
-    cache_name = os.path.splitext(os.path.basename(output_path))[0] + "_chunk_cache.pkl"
-    return os.path.join(output_dir, cache_name)
-
-
-def compute_config_hash(cfg: 'ChunkingConfig') -> str:
-    """Compute hash of chunking configuration for cache validation."""
-    import hashlib
-    config_str = f"{cfg.target_tokens}:{cfg.overlap_ratio}:{cfg.encoding_name}"
-    return hashlib.sha256(config_str.encode()).hexdigest()[:16]
-
-
-def load_chunk_cache(cache_path: str) -> ChunkCacheEntry:
-    """Load cache from file. Returns empty cache if file doesn't exist or is invalid."""
-    if not os.path.isfile(cache_path):
-        return ChunkCacheEntry("", 0.0, 0, "", [])
-    
-    try:
-        with open(cache_path, "rb") as f:
-            return pickle.load(f)
-    except Exception as e:
-        logging.warning("Failed to load chunk cache from %s: %s", cache_path, e)
-        return ChunkCacheEntry("", 0.0, 0, "", [])
-
-
-def save_chunk_cache(cache_entry: ChunkCacheEntry, cache_path: str) -> None:
-    """Save cache entry to file."""
-    try:
-        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-        with open(cache_path, "wb") as f:
-            pickle.dump(cache_entry, f)
-        logging.debug("Saved chunk cache to %s", cache_path)
-    except Exception as e:
-        logging.warning("Failed to save chunk cache to %s: %s", cache_path, e)
-
-
-def is_chunk_cache_valid(input_path: str, cache_entry: ChunkCacheEntry, config_hash: str) -> bool:
-    """Check if cache is valid for the given input file and configuration."""
-    if not cache_entry.input_file or cache_entry.input_file != input_path:
-        return False
-    
-    if cache_entry.config_hash != config_hash:
-        return False
-    
-    try:
-        stat = os.stat(input_path)
-        return (stat.st_mtime == cache_entry.input_mtime and 
-                stat.st_size == cache_entry.input_size)
-    except OSError:
-        return False
 
 
 # -------------------------------
@@ -285,7 +214,7 @@ def sentence_spans(text: str) -> List[Tuple[int, int]]:
     paragraphs = normalized.split("\n\n")
     spans: List[Tuple[int, int]] = []
     base = 0
-    sentence_end_re = re.compile(r"(?<![A-Z]\.)(?<!e\.g)(?<!i\.e)([.!?])\s+(?=[A-Z0-9\[(])")
+    sentence_end_re = re.compile(r"([.!?])\s+(?=[A-Z0-9\[(])")
 
     for para in paragraphs:
         if not para.strip():
@@ -295,6 +224,13 @@ def sentence_spans(text: str) -> List[Tuple[int, int]]:
         last_end = 0
         for m in sentence_end_re.finditer(para):
             end = m.end(1)  # include the punctuation
+            # Skip common abbreviations like e.g., i.e., or single-letter initials
+            prefix = para[max(0, end - 4):end].lower()
+            if prefix.endswith("e.g") or prefix.endswith("i.e"):
+                continue
+            # Skip patterns like "A." where A is capital and likely an initial (heuristic)
+            if end >= 2 and para[end-2].isupper() and para[end-1] == ".":
+                continue
             spans.append((base + start, base + end))
             start = m.end()
             last_end = end
@@ -473,12 +409,17 @@ def chunk_records(records: List[Dict[str, object]], cfg: ChunkingConfig) -> List
 
     # Group markdown by source to allow heading-aware splitting across the whole file
     md_groups: Dict[str, List[Dict[str, object]]] = {}
+    # Group pptx by source to allow slide-order-aware processing and windowed chunks
+    pptx_groups: Dict[str, List[Dict[str, object]]] = {}
     others: List[Dict[str, object]] = []
     for r in records:
         source_type = str(r.get("source_type", ""))
         if source_type == "md":
             src = str(r.get("source_path", ""))
             md_groups.setdefault(src, []).append(r)
+        elif source_type == "pptx":
+            src = str(r.get("source_path", ""))
+            pptx_groups.setdefault(src, []).append(r)
         else:
             others.append(r)
 
@@ -519,6 +460,73 @@ def chunk_records(records: List[Dict[str, object]], cfg: ChunkingConfig) -> List
                 }
             )
 
+    # Process PPTX groups: keep each slide as an atomic chunk and also create windowed slide chunks
+    PPTX_WINDOW: int = 2  # number of slides per window chunk
+    PPTX_STRIDE: int = 1
+    for src, lst in pptx_groups.items():
+        # Sort by slide_number if available
+        lst.sort(key=lambda x: int((x.get("metadata", {}) or {}).get("slide_number") or 0))
+        doc_id = compute_document_id(src)
+        # Emit single-slide chunks
+        for idx, r in enumerate(lst, start=1):
+            content = str(r.get("content", "") or "")
+            if not content.strip():
+                continue
+            locator = f"pptx-slide:{idx}"
+            chunk_id = compute_chunk_id(doc_id, locator, content)
+            meta = dict(r.get("metadata", {}) or {})
+            meta.update({
+                "chunk_index": idx,
+                "num_tokens": token_len(content),
+                "content_format": meta.get("content_format") or "pptx_slide",
+                "file_name": os.path.basename(src),
+            })
+            output_chunks.append(
+                {
+                    "id": chunk_id,
+                    "document_id": doc_id,
+                    "source_path": src,
+                    "source_type": "pptx",
+                    "content": content,
+                    "metadata": meta,
+                }
+            )
+        # Emit windowed multi-slide chunks for better section recall
+        n = len(lst)
+        if PPTX_WINDOW >= 2 and n >= 2:
+            w_index = 1
+            for start in range(0, n, PPTX_STRIDE):
+                end = min(n, start + PPTX_WINDOW)
+                if end - start < 2:
+                    continue
+                window = lst[start:end]
+                contents = [str(r.get("content", "") or "") for r in window]
+                merged = "\n\n---\n\n".join([c for c in contents if c.strip()])
+                if not merged.strip():
+                    continue
+                locator = f"pptx-window:{window[0].get('metadata', {}).get('slide_number')}-{window[-1].get('metadata', {}).get('slide_number')}"
+                chunk_id = compute_chunk_id(doc_id, locator, merged)
+                meta0 = dict(window[0].get("metadata", {}) or {})
+                metaN = dict(window[-1].get("metadata", {}) or {})
+                new_meta = {
+                    "chunk_index": int(meta0.get("slide_number") or start + 1),
+                    "num_tokens": token_len(merged),
+                    "content_format": "pptx_slide_window",
+                    "file_name": os.path.basename(src),
+                    "slide_range": [meta0.get("slide_number"), metaN.get("slide_number")],
+                }
+                output_chunks.append(
+                    {
+                        "id": chunk_id,
+                        "document_id": doc_id,
+                        "source_path": src,
+                        "source_type": "pptx",
+                        "content": merged,
+                        "metadata": new_meta,
+                    }
+                )
+                w_index += 1
+
     # Process other records one-by-one using smart or CSV-aware chunkers
     for r in others:
         content = str(r.get("content", "") or "")
@@ -532,6 +540,9 @@ def chunk_records(records: List[Dict[str, object]], cfg: ChunkingConfig) -> List
         # Decide chunking strategy
         if meta.get("content_format") == "csv" or source_type == "csv":
             chunks = split_csv_rows(content, token_len, cfg.target_tokens, overlap_tokens)
+        elif source_type == "pptx":
+            # Already handled in pptx_groups to preserve order and add windowed chunks
+            continue
         else:
             # Smart sentence-aware packing for coherence
             packed = smart_pack_text(content, token_len, cfg.target_tokens, overlap_tokens)
@@ -574,16 +585,6 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--overlap", type=float, default=0.12, help="Overlap ratio between chunks (0-1)")
     parser.add_argument("--encoding", type=str, default="cl100k_base", help="Tokenizer encoding name")
     parser.add_argument("--verbose", action="store_true", help="Verbose logging")
-    parser.add_argument(
-        "--no-cache",
-        action="store_true",
-        help="Disable caching - rechunk even if input hasn't changed",
-    )
-    parser.add_argument(
-        "--cache-path",
-        type=str,
-        help="Custom cache file path (default: auto-generated based on output path)",
-    )
     args = parser.parse_args(argv)
 
     logging.basicConfig(
@@ -598,49 +599,16 @@ def main(argv: Optional[List[str]] = None) -> int:
         logging.error("Input file does not exist: %s", input_path)
         return 2
 
-    # Initialize cache
-    cache_path = args.cache_path or get_chunk_cache_path(output_path)
-    
-    cfg = ChunkingConfig(
-        target_tokens=max(50, int(args.target_tokens)),
-        overlap_ratio=max(0.0, min(0.5, float(args.overlap))),
-        encoding_name=str(args.encoding),
-    )
-    config_hash = compute_config_hash(cfg)
-    
-    # Check cache
-    if not args.no_cache:
-        cache_entry = load_chunk_cache(cache_path)
-        if is_chunk_cache_valid(input_path, cache_entry, config_hash):
-            logging.info("✅ Cache hit! Using cached chunks from %s", cache_path)
-            chunks = cache_entry.chunks
-            written = write_jsonl(chunks, output_path)
-            logging.info("Wrote %d cached chunks to %s", written, output_path)
-            
-            # Print summary with big font
-            print("\n" + "="*80)
-            print("██████╗██╗  ██╗██╗   ██╗███╗   ██╗██╗  ██╗██╗███╗   ██╗ ██████╗ ")
-            print("██╔════╝██║  ██║██║   ██║████╗  ██║██║ ██╔╝██║████╗  ██║██╔════╝ ")
-            print("██║     ███████║██║   ██║██╔██╗ ██║█████╔╝ ██║██╔██╗ ██║██║  ███╗")
-            print("██║     ██╔══██║██║   ██║██║╚██╗██║██╔═██╗ ██║██║╚██╗██║██║   ██║")
-            print("╚██████╗██║  ██║╚██████╔╝██║ ╚████║██║  ██╗██║██║ ╚████║╚██████╔╝")
-            print(" ╚═════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝ ╚═════╝ ")
-            print("="*80)
-            print("🔄 CHUNKING COMPLETED (FROM CACHE)")
-            print("="*80)
-            print(f"📁 INPUT FILE: {input_path}")
-            print(f"📄 OUTPUT FILE: {output_path}")
-            print(f"🔢 TOTAL CHUNKS: {len(chunks):,}")
-            print(f"⚡ STATUS: Cache hit - no processing needed")
-            print("✅ CHUNKING COMPLETED SUCCESSFULLY!")
-            print("="*80 + "\n")
-            return 0
-
     logging.info("Reading parsed records from %s", input_path)
     records = list(read_jsonl(input_path))
     if not records:
         logging.warning("No input records found.")
 
+    cfg = ChunkingConfig(
+        target_tokens=max(50, int(args.target_tokens)),
+        overlap_ratio=max(0.0, min(0.5, float(args.overlap))),
+        encoding_name=str(args.encoding),
+    )
     logging.info(
         "Chunking with target_tokens=%d, overlap=%.2f, encoding=%s",
         cfg.target_tokens,
@@ -650,42 +618,6 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     chunks = chunk_records(records, cfg)
     written = write_jsonl(chunks, output_path)
-    
-    # Save to cache
-    if not args.no_cache:
-        try:
-            stat = os.stat(input_path)
-            new_cache_entry = ChunkCacheEntry(
-                input_file=input_path,
-                input_mtime=stat.st_mtime,
-                input_size=stat.st_size,
-                config_hash=config_hash,
-                chunks=chunks
-            )
-            save_chunk_cache(new_cache_entry, cache_path)
-        except Exception as e:
-            logging.warning("Failed to save cache: %s", e)
-    
-    # Print summary with big font
-    print("\n" + "="*80)
-    print("██████╗██╗  ██╗██╗   ██╗███╗   ██╗██╗  ██╗██╗███╗   ██╗ ██████╗ ")
-    print("██╔════╝██║  ██║██║   ██║████╗  ██║██║ ██╔╝██║████╗  ██║██╔════╝ ")
-    print("██║     ███████║██║   ██║██╔██╗ ██║█████╔╝ ██║██╔██╗ ██║██║  ███╗")
-    print("██║     ██╔══██║██║   ██║██║╚██╗██║██╔═██╗ ██║██║╚██╗██║██║   ██║")
-    print("╚██████╗██║  ██║╚██████╔╝██║ ╚████║██║  ██╗██║██║ ╚████║╚██████╔╝")
-    print(" ╚═════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝ ╚═════╝ ")
-    print("="*80)
-    print("🔄 CHUNKING COMPLETED")
-    print("="*80)
-    print(f"📁 INPUT FILE: {input_path}")
-    print(f"📄 OUTPUT FILE: {output_path}")
-    print(f"🔢 TOTAL CHUNKS: {len(chunks):,}")
-    print(f"📊 CONFIG: {cfg.target_tokens} tokens, {cfg.overlap_ratio:.1%} overlap")
-    if not args.no_cache:
-        print(f"💾 CACHE: Saved to {cache_path}")
-    print("✅ CHUNKING COMPLETED SUCCESSFULLY!")
-    print("="*80 + "\n")
-    
     logging.info("Wrote %d chunks to %s", written, output_path)
     return 0
 

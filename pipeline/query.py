@@ -29,7 +29,7 @@ import json
 import os
 import re
 from pathlib import Path
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, Iterable, List, Tuple, Optional
 
 import numpy as np
 
@@ -156,28 +156,34 @@ def per_doc_cap(indices: List[int], items: List[Dict[str, object]], cap: int) ->
     return out
 
 
-def rerank(query: str, candidate_indices: List[int], items: List[Dict[str, object]], topn: int = 20) -> List[int]:
+def rerank(query: str, candidate_indices: List[int], items: List[Dict[str, object]], topn: int = 20, chunk_index: Optional[Dict[str, Dict[str, object]]] = None) -> List[int]:
     if not candidate_indices:
         return []
-    passages = [
-        {"id": str(i), "text": str(items[i]["full_text"])[:2000]} for i in candidate_indices
-    ]
+    passages = []
+    for i in candidate_indices:
+        it = items[i]
+        text = str(it["full_text"])[:2000]
+        meta = dict(it.get("metadata", {}))
+        is_csv = (meta.get("content_format") == "csv") or (str(it.get("source_type")) == "csv")
+        preview = ""
+        if is_csv and chunk_index is not None:
+            ch = chunk_index.get(str(it.get("id")))
+            if ch is not None:
+                csv_text = str(ch.get("content", ""))
+                preview = _csv_to_markdown_preview(csv_text)
+        if not preview and str(it.get("source_path", "")).lower().endswith(".csv"):
+            src = str(it.get("source_path"))
+            if os.path.isfile(src):
+                preview = _csv_file_to_markdown_preview(src)
+        full_for_rank = (preview + "\n\n" + text) if preview else text
+        passages.append({"id": str(i), "text": full_for_rank})
     if FLASHRANK_OK:
         ranker = Ranker()
         req = RerankRequest(query=query, passages=passages)
         ranked = ranker.rerank(req)
-        # Handle both dict and object returns from flashrank
-        result = []
-        for p in ranked[:topn]:
-            if hasattr(p, 'id'):
-                result.append(int(p.id))
-            elif isinstance(p, dict):
-                result.append(int(p['id']))
-            else:
-                result.append(int(str(p)))
-        return result
+        return [int(getattr(p, "id", p.get("id") if isinstance(p, dict) else str(p))) for p in ranked][:topn]
     if CE is not None:
-        pairs = [(query, str(items[i]["full_text"])) for i in candidate_indices]
+        pairs = [(query, p["text"]) for p in passages]
         scores = CE.predict(pairs)
         order = np.argsort(scores)[::-1][:topn]
         return [candidate_indices[i] for i in order]
@@ -226,20 +232,104 @@ def format_citations(indices: List[int], items: List[Dict[str, object]]) -> Tupl
     return "\n".join(lines), mapping
 
 
-def build_prompt(question: str, final_indices: List[int], items: List[Dict[str, object]]) -> Tuple[str, str]:
+def _csv_to_markdown_preview(csv_text: str, max_rows: int = 6, max_cols: int = 10, max_col_chars: int = 40) -> str:
+    import csv
+    from io import StringIO
+    if not csv_text or not csv_text.strip():
+        return ""
+    f = StringIO(csv_text)
+    try:
+        reader = csv.reader(f)
+        rows = list(reader)
+    except Exception:
+        return ""
+    if not rows:
+        return ""
+    header = rows[0][:max_cols]
+    data = rows[1:1 + max_rows]
+    def clip(s: str) -> str:
+        s = s.strip()
+        return (s[:max_col_chars] + "…") if len(s) > max_col_chars else s
+    header = [clip(h) for h in header]
+    body = [[clip(c) for c in r[:max_cols]] for r in data]
+    lines = ["| " + " | ".join(header) + " |"]
+    lines.append("| " + " | ".join(["---"] * len(header)) + " |")
+    for r in body:
+        lines.append("| " + " | ".join(r) + " |")
+    return "\n".join(lines)
+
+
+def _csv_file_to_markdown_preview(source_path: str, max_rows: int = 6, max_cols: int = 10, max_col_chars: int = 40) -> str:
+    try:
+        import pandas as pd  # type: ignore
+    except Exception:
+        return ""
+    try:
+        df = pd.read_csv(source_path, engine="python")
+    except Exception:
+        try:
+            df = pd.read_csv(source_path, sep=None, engine="python")
+        except Exception:
+            try:
+                df = pd.read_csv(source_path, delim_whitespace=True, engine="python")
+            except Exception:
+                return ""
+    if df.empty:
+        return ""
+    df = df.iloc[:max_rows, :max_cols]
+    def clip(s: str) -> str:
+        s = str(s)
+        return (s[:max_col_chars] + "…") if len(s) > max_col_chars else s
+    header = [clip(c) for c in df.columns.tolist()]
+    rows = [[clip(v) for v in row] for row in df.values.tolist()]
+    lines = ["| " + " | ".join(header) + " |"]
+    lines.append("| " + " | ".join(["---"] * len(header)) + " |")
+    for r in rows:
+        lines.append("| " + " | ".join(r) + " |")
+    return "\n".join(lines)
+
+
+def _pptx_slide_label(meta: Dict[str, object]) -> str:
+    snum = meta.get("slide_number")
+    return f"Slide {int(snum)}" if isinstance(snum, int) or (isinstance(snum, str) and str(snum).isdigit()) else "Slide"
+
+
+def build_prompt(question: str, final_indices: List[int], items: List[Dict[str, object]],
+                 chunk_index: Optional[Dict[str, Dict[str, object]]] = None) -> Tuple[str, str]:
     ctx_blocks: List[str] = []
     for n, i in enumerate(final_indices, start=1):
-        text = str(items[i]["full_text"]).strip()
-        if len(text) > 2000:
-            text = text[:2000]
-        ctx_blocks.append(f"[{n}] {text}")
+        it = items[i]
+        text = str(it["full_text"]).strip()
+        meta = dict(it.get("metadata", {}))
+        is_csv = (meta.get("content_format") == "csv") or (str(it.get("source_type")) == "csv")
+        is_pptx = str(it.get("source_type")) == "pptx"
+        preview = ""
+        if is_csv and chunk_index is not None:
+            ch = chunk_index.get(str(it.get("id")))
+            if ch is not None:
+                csv_text = str(ch.get("content", ""))
+                preview = _csv_to_markdown_preview(csv_text)
+        if not preview and str(it.get("source_path", "")).lower().endswith(".csv"):
+            src = str(it.get("source_path"))
+            if os.path.isfile(src):
+                preview = _csv_file_to_markdown_preview(src)
+        if len(text) > 2200:
+            text = text[:2200]
+        if is_pptx:
+            slide_title = _pptx_slide_label(meta)
+            block = f"[{n}] {slide_title}:\n{text}"
+        elif preview:
+            block = f"[{n}] Table preview (first rows/cols):\n{preview}\n\nDetails: {text}"
+        else:
+            block = f"[{n}] {text}"
+        ctx_blocks.append(block)
     context = "\n\n".join(ctx_blocks)
     system = (
-        "You are a precise engineering assistant. Answer ONLY using the provided context. "
-        "Cite sources inline like [1], [2] immediately after the claims they support. "
-        "If the answer is not found, say you don't know."
+        "You are a precise engineering assistant. Use ONLY the provided context. "
+        "Write a concise, coherent answer. When multiple chunks from the SAME document are provided, stitch them into a single cohesive section, preserving bullet structure and tables. "
+        "Quote exact phrases for key claims where appropriate. Use inline citations like [1], [2] immediately after the claims they support. If the answer is not found, say you don't know."
     )
-    user = f"Question: {question}\n\nContext:\n{context}\n\nProvide a concise answer with inline citations and a Sources list."
+    user = f"Question: {question}\n\nContext:\n{context}\n\nInstructions:\n- Prefer drawing from the same source when multiple chunks are provided\n- Preserve list/table structure\n- Avoid speculation; do not use outside knowledge\n\nProvide a concise answer with inline citations and a Sources list."
     return system, user
 
 
@@ -273,15 +363,39 @@ def call_gemini_via_litellm(system: str, user: str, timeout: int = 60) -> str:
     return str(content) if content is not None else str(resp)
 
 
+def _load_chunk_index(chunked_path: Optional[str]) -> Optional[Dict[str, Dict[str, object]]]:
+    if not chunked_path:
+        return None
+    path = os.path.abspath(chunked_path)
+    if not os.path.isfile(path):
+        return None
+    idx: Dict[str, Dict[str, object]] = {}
+    for rec in read_jsonl(path):
+        rid = str(rec.get("id"))
+        if rid:
+            idx[rid] = rec
+    return idx
+
+
+def _derive_chunked_path_from_embeddings(embeddings_path: str) -> Optional[str]:
+    try:
+        p = Path(embeddings_path)
+        candidate = p.with_name("chunked.jsonl")
+        return str(candidate)
+    except Exception:
+        return None
+
+
 def answer(
     question: str,
     embeddings_path: str,
+    chunked_path: Optional[str] = None,
     k_dense_sum: int = 60,
     k_dense_full: int = 60,
     k_sparse: int = 60,
-    per_doc: int = 4,
-    final_k: int = 8,
-    lambda_mmr: float = 0.7,
+    per_doc: int = 8,
+    final_k: int = 10,
+    lambda_mmr: float = 0.8,
     timeout: int = 60,
 ) -> Tuple[str, str]:
     items = load_corpus(embeddings_path)
@@ -297,16 +411,63 @@ def answer(
     c_sparse = sparse_search(question, bm25, k_sparse)
 
     fused = rrf([c_sum, c_full, c_sparse], weights=[0.9, 1.2, 0.8], rrf_k=60, base=60)
+
+    # Heuristic injection for CSV
+    ql = question.lower()
+    inject_indices: List[int] = []
+    if any(tok in ql for tok in ["csv", "table", "column", "row", "requirements"]):
+        toks = question.lower().split()
+        scores = bm25.get_scores(toks)
+        csv_indices = [i for i, it in enumerate(items) if str(it.get("source_type")) == "csv" or it.get("metadata", {}).get("content_format") == "csv"]
+        top_csv = sorted(csv_indices, key=lambda i: scores[i], reverse=True)[:20]
+        fused = list(dict.fromkeys(top_csv + fused))
+    # PPTX injection
+    ppt_inject: List[int] = []
+    if any(tok in ql for tok in ["slide", "ppt", "pptx", "deck", "concept review"]):
+        name_hints = ["alexandria concept review", "concept review", "alexandria"]
+        for i, it in enumerate(items):
+            sp = str(it.get("source_path", "")).lower()
+            st = str(it.get("source_type", "")).lower()
+            if st == "pptx" and any(h in sp for h in name_hints):
+                ppt_inject.append(i)
+        ppt_inject = ppt_inject[:30]
+        if ppt_inject:
+            fused = list(dict.fromkeys(ppt_inject + fused))
+
     fused = per_doc_cap(fused, items, per_doc)
 
-    reranked = rerank(question, fused[:100], items, topn=20)
-    final_indices = mmr_select(qv[0], reranked, E_full, lambda_mmr, min(final_k, len(reranked) or 0))
+    # Rerank
+    chunk_index = None
+    if chunked_path is None:
+        derived = _derive_chunked_path_from_embeddings(embeddings_path)
+        if derived and os.path.isfile(derived):
+            chunk_index = _load_chunk_index(derived)
+    else:
+        chunk_index = _load_chunk_index(chunked_path)
+
+    reranked = rerank(question, fused[:120], items, topn=40, chunk_index=chunk_index)
+
+    # Coherence: prioritize the top document, then fill remainder
+    if reranked:
+        doc_counts: Dict[str, int] = {}
+        for i in reranked:
+            d = str(items[i]["document_id"])
+            doc_counts[d] = doc_counts.get(d, 0) + 1
+        top_doc = max(doc_counts.items(), key=lambda kv: kv[1])[0]
+        top_doc_indices = [i for i in reranked if str(items[i]["document_id"]) == top_doc]
+        others = [i for i in reranked if str(items[i]["document_id"]) != top_doc]
+        final_indices = top_doc_indices[: min(len(top_doc_indices), final_k)]
+        for i in others:
+            if len(final_indices) >= final_k:
+                break
+            final_indices.append(i)
+    else:
+        final_indices = []
 
     sources_block, cmap = format_citations(final_indices, items)
-    system, user = build_prompt(question, final_indices, items)
+    system, user = build_prompt(question, final_indices, items, chunk_index)
     out = call_gemini_via_litellm(system, user, timeout=timeout)
 
-    # Cheap faithfulness: ensure most sentences have citations
     sentences = [s for s in re.split(r"(?<=[.!?])\s+", out) if s.strip()]
     cited = sum(1 for s in sentences if re.search(r"\[\d+\]", s))
     if sentences and cited / len(sentences) < 0.6:
@@ -320,8 +481,10 @@ def main(argv: List[str] | None = None) -> int:
     default_emb = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "artifacts", "embeddings.jsonl"))
     parser.add_argument("--question", type=str, required=False, help="User question")
     parser.add_argument("--embeddings", type=str, default=default_emb, help="Path to embeddings.jsonl")
+    # --chunked is now optional; if omitted, derived from embeddings path
+    parser.add_argument("--chunked", type=str, default=None, help="Path to chunked.jsonl (optional; auto-derived)")
     parser.add_argument("--timeout", type=int, default=60, help="LLM timeout (s)")
-    parser.add_argument("--topk", type=int, default=8, help="Final K contexts")
+    parser.add_argument("--topk", type=int, default=10, help="Final K contexts")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args(argv)
 
@@ -329,6 +492,7 @@ def main(argv: List[str] | None = None) -> int:
     out, sources = answer(
         q,
         embeddings_path=os.path.abspath(args.embeddings),
+        chunked_path=os.path.abspath(args.chunked) if args.chunked else None,
         final_k=int(args.topk),
         timeout=int(args.timeout),
     )

@@ -22,11 +22,13 @@ TTQuery provides two primary interfaces:
 1. Parse (Data → parsed.jsonl) **[Cached]**
    - Walks the `Data/` directory and normalizes documents into a unified JSONL format with rich metadata for citations.
    - Default engine is unstructured.io for high‑fidelity parsing. A lightweight basic engine exists for resilience.
+   - **PPTX native tables**: Extracts real PowerPoint tables (via `python-pptx`) per slide and serializes as CSV with `metadata.content_format="csv"`, `slide_number`, and `table_index`.
    - **Caching**: Tracks file modification times and sizes. Only reparses changed files.
 
 2. Chunk (parsed.jsonl → chunked.jsonl) **[Cached]**
    - Converts parsed elements into embedding‑ready chunks targeting ~200–400 tokens with ~10–15% overlap.
    - Heading‑aware for Markdown; sentence‑aware packing for other text; row‑aware for CSV tables.
+   - **Slides atomic + windowed**: Keeps PPTX slides as single chunks and creates small slide-window chunks (e.g., 2 slides) to preserve context across slides.
    - **Caching**: Invalidates cache when input file or chunking configuration (tokens, overlap, encoding) changes.
 
 3. Embed (chunked.jsonl → embeddings.jsonl) **[Cached]**
@@ -51,10 +53,13 @@ TTQuery provides two primary interfaces:
    - **Rerank + diversify**:
      - Local cross‑encoder rerank (Flashrank or `cross-encoder/ms-marco-MiniLM-L-6-v2`) with robust error handling.
      - Maximal Marginal Relevance (MMR) reduces redundancy and increases coverage.
+   - **Coherent context selection**:
+     - Prefer multiple chunks from the top-ranked document to maximize continuity for slide decks and long sections.
    - **Generate**:
      - Uses Gemini 2.5 Pro via TensTorrent LiteLLM proxy (`LITELLM_BASE_URL`, `LITELLM_API_KEY`).
      - **Conversation context**: Previous Q&A exchanges inform new responses.
      - Strict inline citations `[n]` per claim; bottom Sources block includes `source_path` and page/slide when available.
+     - **Table-aware prompting**: CSV/table chunks render a compact Markdown table preview (first rows/cols). Native PPTX tables are included via parsed CSV.
 
     Quick smoke test for the proxy is available via `LiteLLM.py`:
     ```bash
@@ -112,10 +117,9 @@ python pipeline/embed.py --cache-path "custom/embed_cache.pkl" --input "artifact
 - **Config changes**: Intelligent invalidation ensures correctness
 
 ### Artifacts and flow
-- `artifacts/parsed.jsonl`: One line per parsed element with `id`, `document_id`, `source_path`, `source_type`, `content`, and `metadata` (page/slide numbers, heading paths, element type, coordinates when available).
-- `artifacts/chunked.jsonl`: One line per chunk with `num_tokens` and `chunk_index`, preserving provenance metadata for citations.
-- `artifacts/embeddings.jsonl`: One line per chunk with `summary_text`, `full_text`, and their embeddings (`embedding_summary`, `embedding_full`).
-  These are consumed by the query stage for FAISS and BM25 indexing at runtime.
+- `artifacts/parsed.jsonl`: One line per parsed element with `id`, `document_id`, `source_path`, `source_type`, `content`, and `metadata` (page/slide numbers, heading paths, element type, coordinates when available). Includes native PPTX tables serialized to CSV with `content_format="csv"` and `table_index`.
+- `artifacts/chunked.jsonl`: One line per chunk with `num_tokens` and `chunk_index`, preserving provenance metadata for citations. Includes atomic slide chunks and windowed slide chunks for PPTX.
+- `artifacts/embeddings.jsonl`: One line per chunk with `summary_text`, `full_text`, and their embeddings (`embedding_summary`, `embedding_full`). These are consumed by the query stage for FAISS and BM25 indexing at runtime.
   - When the ColBERT provider is used, token-level vectors are also emitted as `embedding_summary_mv` and `embedding_full_mv` and pooled vectors are kept for compatibility.
 
 ### Important design choices (and why)
@@ -129,6 +133,7 @@ python pipeline/embed.py --cache-path "custom/embed_cache.pkl" --input "artifact
 
 - Tables → structured CSV and sentence linearization
   - PDF tables are extracted as CSV (default via pdfplumber). Unstructured HTML tables can be converted to CSV.
+  - **PPTX tables** are extracted natively and serialized to CSV, enabling true table retrieval and reconstruction.
   - Before embedding, tables are linearized into sentences that name columns and sample rows—this makes them retrievable by meaning, not layout.
 
 - Images → captioning + OCR + context
@@ -138,6 +143,7 @@ python pipeline/embed.py --cache-path "custom/embed_cache.pkl" --input "artifact
 - Smart chunking with overlap
   - Markdown is split with heading awareness; other text uses sentence‑aware packing.
   - CSV is row‑aware to avoid splitting rows across chunks.
+  - PPTX slides remain atomic with additional windowed chunks to preserve flow across slides.
   - Overlap preserves context across boundaries to reduce answer truncation.
 
 - Multi‑vector retrieval
