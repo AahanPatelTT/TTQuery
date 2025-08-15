@@ -62,11 +62,11 @@ TTQuery provides two primary interfaces:
      - **Table-aware prompting**: CSV/table chunks render a compact Markdown table preview (first rows/cols). Native PPTX tables are included via parsed CSV.
 
     Quick smoke test for the proxy is available via `LiteLLM.py`:
-    ```bash
-export LITELLM_API_KEY=sk-CzfsNjlVWVWE--edRT6qQg
+```bash
+export LITELLM_API_KEY=*your key*
 export LITELLM_BASE_URL=https://litellm-proxy--tenstorrent.workload.tenstorrent.com/
 python LiteLLM.py --prompt "Hello from LiteLLM proxy!" --model gemini/gemini-2.5-pro --timeout 30
-    ```
+```
 
 ### Intelligent Caching System
 
