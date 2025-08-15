@@ -1,0 +1,7 @@
+model_list:
+  - model_name: gpt-3.5-turbo
+    litellm_params:
+      model: openai/gpt-3.5-turbo
+      api_base: "https://litellm-proxy--tenstorrent.workload.tenstorrent.com"
+      api_key: "sk-CzfsNjlVWVWE--edRT6qQg"
+

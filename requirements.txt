@@ -1,0 +1,48 @@
+# Core
+numpy>=1.26
+pandas>=2.2
+
+# Parsing engines
+pymupdf>=1.24            # PDF (basic engine fallback)
+python-pptx>=0.6.23      # PPTX
+python-docx>=1.1.2       # DOCX
+
+# OCR and images
+pillow>=10.3
+pytesseract>=0.3.10
+
+# High-fidelity structured parsing via unstructured.io
+unstructured[all-docs]>=0.14.6
+unstructured-inference>=0.7.36
+layoutparser>=0.3.4
+opencv-python-headless>=4.10.0
+
+# Apple Silicon (optional; remove if not needed)
+torch>=2.3 ; platform_machine == "arm64" and sys_platform == "darwin"
+torchvision>=0.18 ; platform_machine == "arm64" and sys_platform == "darwin"
+
+# PDF table extraction and HTML parsing
+pdfplumber>=0.11.4
+lxml>=5.2
+
+# Tokenization and splitting
+tiktoken>=0.7.0
+langchain-text-splitters>=0.2.2
+
+# Captioning and LLM tooling
+transformers>=4.43
+
+# Embedding providers
+sentence-transformers>=2.7.0
+openai>=1.35.0
+colbert-ai>=0.2.19
+
+# Retrieval stack
+faiss-cpu>=1.8.0
+rank-bm25>=0.2.2
+flashrank>=0.2.8
+
+# LiteLLM proxy client (Gemini via OpenAI-compatible route)
+litellm>=1.43.7
+
+ 
