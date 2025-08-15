@@ -16,6 +16,7 @@ Features:
 
 Usage:
     python chat.py [--embeddings artifacts/embeddings.jsonl] [--verbose] [--session session.json]
+    python chat.py --test_gui  # Launch local web app GUI
 """
 
 import argparse
@@ -272,6 +273,7 @@ def enhanced_answer(
     final_k: int = 8,
     lambda_mmr: float = 0.7,
     timeout: int = 60,
+    system_override: Optional[str] = None,
 ) -> Tuple[str, str, Dict]:
     """Enhanced answer function with verbose output and conversation context."""
     
@@ -328,6 +330,9 @@ def enhanced_answer(
     # Add conversation context if available
     if conversation_context:
         system += "\n\nFor context, here is our recent conversation:\n" + conversation_context
+    # Admin/system override from GUI
+    if system_override:
+        system = str(system_override)
     
     if verbose:
         VerboseRetrieval.print_header("LLM GENERATION")
@@ -476,6 +481,186 @@ def start_new_session() -> ChatSession:
     return ChatSession(session_file, auto_continue=False)
 
 
+def run_gui(embeddings_path: str, default_timeout: int = 60) -> int:
+    try:
+        from flask import Flask, request, jsonify, render_template
+    except Exception as exc:
+        print("❌ Flask is required. Run: pip install flask")
+        return 2
+    try:
+        import markdown  # type: ignore
+    except Exception as exc:
+        print("❌ 'markdown' package is required for proper rendering. Run: pip install markdown")
+        return 2
+
+    # Load KB once
+    try:
+        items = load_corpus(embeddings_path)
+        if not items:
+            print("❌ No embeddings found in file")
+            return 1
+    except Exception as e:
+        print(f"❌ Failed to load embeddings: {e}")
+        return 1
+
+    # Persistent session using CLI's ChatSession
+    session = ChatSession(auto_continue=True)
+    session_history: List[Dict] = []  # mirrored in-memory for quick UI rendering
+
+    # Admin-configurable RAG params (mutable via UI)
+    rag_cfg = {
+        "system_prompt": (
+            "You are a precise engineering assistant. Use ONLY the provided context. "
+            "Write a concise, coherent answer. When multiple chunks from the SAME document are provided, stitch them into a single cohesive section. "
+            "Quote exact phrases for key claims where appropriate. Use inline citations like [1], [2] immediately after the claims they support. If the answer is not found, say you don't know."
+        ),
+        "topk": 10,
+        "per_doc": 8,
+        "lambda_mmr": 0.8,
+        "timeout": default_timeout,
+        "verbose": False,
+    }
+
+    app = Flask(__name__)
+
+    @app.get("/")
+    def index():
+        return render_template(
+            'index.html',
+            system_prompt=rag_cfg["system_prompt"],
+            topk=rag_cfg["topk"],
+            per_doc=rag_cfg["per_doc"],
+            lambda_mmr=rag_cfg["lambda_mmr"],
+            timeout=rag_cfg["timeout"],
+            embeddings_path=os.path.abspath(embeddings_path),
+        )
+
+    @app.get("/api/config")
+    def get_config():
+        return jsonify({**rag_cfg})
+
+    @app.post("/api/config")
+    def set_config():
+        data = request.get_json(force=True)
+        for k in ["system_prompt","topk","per_doc","lambda_mmr","timeout","verbose"]:
+            if k in data and data[k] is not None:
+                rag_cfg[k] = data[k]
+        return jsonify({"ok": True})
+
+    @app.get("/api/history")
+    def get_history():
+        # Load from persistent session on first call
+        nonlocal session_history
+        if not session_history and session.history:
+            for ex in session.history:
+                # Convert stored plain text to HTML for UI rendering
+                a_html = markdown.markdown(str(ex.get("answer", "")), extensions=["tables", "fenced_code"])
+                s_html = markdown.markdown(str(ex.get("sources", "")), extensions=["tables", "fenced_code"])
+                session_history.append({
+                    "q": ex.get("question", ""),
+                    "a_html": a_html,
+                    "sources_html": s_html,
+                    "ts": ex.get("timestamp", "")
+                })
+        return jsonify({"history": session_history, "session_file": session.session_file})
+
+    @app.get("/api/sessions")
+    def list_sessions_api():
+        from datetime import timedelta
+        session_dir = Path("sessions")
+        result: List[Dict] = []
+        if session_dir.exists():
+            files = sorted(session_dir.glob("chat_session_*.json"), key=lambda f: f.stat().st_mtime, reverse=True)
+            for fpath in files[:50]:
+                try:
+                    stat = fpath.stat()
+                    with open(fpath, 'r') as f:
+                        data = json.load(f)
+                    result.append({
+                        "name": fpath.name,
+                        "path": str(fpath.resolve()),
+                        "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                        "exchanges": len(data.get("history", []))
+                    })
+                except Exception:
+                    continue
+        return jsonify({"sessions": result, "current": session.session_file})
+
+    @app.post("/api/session/new")
+    def new_session_api():
+        nonlocal session, session_history
+        session = start_new_session()
+        session_history = []
+        return jsonify({"ok": True, "session_file": session.session_file})
+
+    @app.post("/api/session/load")
+    def load_session_api():
+        nonlocal session, session_history
+        data = request.get_json(force=True)
+        fname = str(data.get("filename") or "").strip()
+        if not fname:
+            return jsonify({"ok": False, "error": "filename required"}), 400
+        # Resolve path inside sessions dir
+        target = Path("sessions") / fname
+        if not target.exists():
+            return jsonify({"ok": False, "error": "session file not found"}), 404
+        session = ChatSession(str(target), auto_continue=False)
+        session_history = []
+        return jsonify({"ok": True, "session_file": session.session_file})
+
+    @app.post("/api/ask")
+    def ask():
+        data = request.get_json(force=True)
+        question = (data.get("question") or "").strip()
+        if not question:
+            return jsonify({"answer":"", "sources":""})
+
+        # Conversation context for parity with CLI
+        conv_ctx = session.get_context(last_n=3)
+        try:
+            answer_text, sources_block, retrieval_info = enhanced_answer(
+                question=question,
+                embeddings_path=embeddings_path,
+                conversation_context=conv_ctx,
+                verbose=bool(rag_cfg.get("verbose", False)),
+                per_doc=int(rag_cfg.get("per_doc", 8)),
+                final_k=int(rag_cfg.get("topk", 10)),
+                lambda_mmr=float(rag_cfg.get("lambda_mmr", 0.8)),
+                timeout=int(rag_cfg.get("timeout", default_timeout)),
+                system_override=rag_cfg.get("system_prompt") if rag_cfg.get("system_prompt") else None,
+            )
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 500
+
+        # Add to persistent session
+        session.add_exchange(question, answer_text, sources_block, retrieval_info)
+
+        # Keep in-memory history for UI
+        a_html = markdown.markdown(str(answer_text), extensions=["tables", "fenced_code"])
+        s_html = markdown.markdown(str(sources_block), extensions=["tables", "fenced_code"])
+        session_history.append({"q": question, "a_html": a_html, "sources_html": s_html, "ts": time.time()})
+
+        resp = {"answer": answer_text, "sources": sources_block, "answer_html": a_html, "sources_html": s_html}
+        if rag_cfg.get("verbose"):
+            resp["retrieval_info"] = retrieval_info
+        return jsonify(resp)
+
+    @app.post("/api/clear")
+    def clear():
+        session_history.clear()
+        session.clear_history()
+        return jsonify({"ok": True})
+
+    @app.get("/api/export")
+    def export():
+        from flask import Response
+        data = json.dumps({"history": session_history}, indent=2)
+        return Response(data, mimetype='application/json')
+
+    app.run(host="127.0.0.1", port=7860, debug=False)
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="TTQuery Interactive Chat")
     parser.add_argument(
@@ -484,163 +669,92 @@ def main() -> int:
         default="artifacts/embeddings.jsonl",
         help="Path to embeddings file"
     )
-    parser.add_argument(
-        "--session",
-        type=str,
-        help="Specific session file for conversation history (default: auto-continue recent session)"
-    )
-    parser.add_argument(
-        "--new-session",
-        action="store_true",
-        help="Force start a new session instead of continuing previous one"
-    )
-    parser.add_argument(
-        "--verbose",
-        action="store_true",
-        help="Start with verbose retrieval mode enabled"
-    )
-    parser.add_argument(
-        "--timeout",
-        type=int,
-        default=60,
-        help="LLM timeout in seconds"
-    )
-    
+    parser.add_argument("--session", type=str, help="Specific session file for conversation history")
+   
+    parser.add_argument("--new-session", action="store_true", help="Force start a new session")
+    parser.add_argument("--verbose", action="store_true", help="Start with verbose retrieval mode enabled")
+    parser.add_argument("--timeout", type=int, default=60, help="LLM timeout in seconds")
+    parser.add_argument("--test_gui", action="store_true", help="Launch local test GUI instead of CLI")
+
     args = parser.parse_args()
-    
-    # Check environment
-    api_key = os.getenv("LITELLM_API_KEY")
-    base_url = os.getenv("LITELLM_BASE_URL")
-    
+
+    api_key = os.getenv("LITELLM_API_KEY"); base_url = os.getenv("LITELLM_BASE_URL")
     if not api_key or not base_url:
-        print("❌ Environment variables not set!")
-        print("Please set LITELLM_API_KEY and LITELLM_BASE_URL")
-        print("\nExample:")
-        print("export LITELLM_API_KEY=your_key")
-        print("export LITELLM_BASE_URL=https://litellm-proxy--tenstorrent.workload.tenstorrent.com/")
+        print("❌ Environment variables not set!\nSet LITELLM_API_KEY and LITELLM_BASE_URL")
         return 1
-    
-    # Check embeddings file
+
     embeddings_path = os.path.abspath(args.embeddings)
     if not os.path.exists(embeddings_path):
-        print(f"❌ Embeddings file not found: {embeddings_path}")
-        print("Run 'python initialize.py' first to prepare your knowledge base.")
+        print(f"❌ Embeddings file not found: {embeddings_path}\nRun 'python initialize.py' first.")
         return 1
-    
-    # Load knowledge base
+
+    if args.test_gui:
+        return run_gui(embeddings_path, default_timeout=int(args.timeout))
+
+    # ------------- existing CLI startup -------------
     print("🔄 Loading knowledge base...")
     try:
         items = load_corpus(embeddings_path)
         if not items:
-            print("❌ No embeddings found in file")
-            return 1
+            print("❌ No embeddings found in file"); return 1
         print(f"✅ Loaded {len(items):,} chunks from knowledge base")
     except Exception as e:
-        print(f"❌ Failed to load embeddings: {e}")
-        return 1
-    
-    # Initialize session with auto-continue behavior
-    auto_continue = not args.new_session  # Don't auto-continue if user wants new session
+        print(f"❌ Failed to load embeddings: {e}"); return 1
+
+    auto_continue = not args.new_session
     session = ChatSession(args.session, auto_continue=auto_continue)
     verbose_mode = args.verbose
-    
     print_welcome(session)
-    
+
     try:
         while True:
-            # Get user input
             try:
                 question = input("\n💬 You: ").strip()
             except (EOFError, KeyboardInterrupt):
-                print("\n\n👋 Goodbye!")
-                break
-            
-            if not question:
-                continue
-            
-            # Handle commands
+                print("\n\n👋 Goodbye!"); break
+            if not question: continue
             if question.startswith('/'):
                 cmd_parts = question[1:].split(None, 1)
                 cmd = cmd_parts[0].lower()
-                
-                if cmd in ['quit', 'exit']:
-                    print("👋 Goodbye!")
-                    break
-                elif cmd == 'help':
-                    print_help()
-                elif cmd == 'clear':
-                    session.clear_history()
-                    print("🗑️  Conversation history cleared")
-                elif cmd == 'history':
-                    if not session.history:
-                        print("📝 No conversation history yet")
+                if cmd in ['quit','exit']: print("👋 Goodbye!"); break
+                elif cmd=='help': print_help()
+                elif cmd=='clear': session.clear_history(); print("🗑️  Conversation history cleared")
+                elif cmd=='history':
+                    if not session.history: print("📝 No conversation history yet")
                     else:
                         print(f"\n📚 Conversation History ({len(session.history)} exchanges):")
-                        for i, ex in enumerate(session.history[-10:], 1):  # Show last 10
-                            timestamp = ex['timestamp'][:19].replace('T', ' ')
+                        for i, ex in enumerate(session.history[-10:], 1):
+                            timestamp = ex['timestamp'][:19].replace('T',' ')
                             print(f"\n[{timestamp}] Q{i}: {ex['question']}")
-                            answer = ex['answer'][:150] + '...' if len(ex['answer']) > 150 else ex['answer']
+                            answer = ex['answer'][:150] + '...' if len(ex['answer'])>150 else ex['answer']
                             print(f"[{timestamp}] A{i}: {answer}")
-                elif cmd == 'verbose':
-                    verbose_mode = not verbose_mode
-                    print(f"🔍 Verbose mode: {'ON' if verbose_mode else 'OFF'}")
-                elif cmd == 'export':
-                    if len(cmd_parts) > 1:
-                        session.export_session(cmd_parts[1])
+                elif cmd=='verbose': verbose_mode = not verbose_mode; print(f"🔍 Verbose mode: {'ON' if verbose_mode else 'OFF'}")
+                elif cmd=='export':
+                    if len(cmd_parts)>1: session.export_session(cmd_parts[1])
                     else:
-                        default_file = f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-                        session.export_session(default_file)
-                elif cmd == 'stats':
-                    print_stats(session, items)
-                elif cmd == 'sessions':
-                    list_sessions()
-                elif cmd == 'new':
-                    # Start a new session
-                    session = start_new_session()
-                    print("🔄 Switched to new session. Previous context cleared.")
+                        default_file = f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"; session.export_session(default_file)
+                elif cmd=='stats': items2 = load_corpus(embeddings_path); print_stats(session, items2)
+                elif cmd=='sessions': list_sessions()
+                elif cmd=='new': session = start_new_session(); print("🔄 Switched to new session. Previous context cleared.")
                 else:
-                    print(f"❓ Unknown command: /{cmd}")
-                    print("Type /help for available commands")
-                
+                    print(f"❓ Unknown command: /{cmd}\nType /help for available commands")
                 continue
-            
             # Process question
-            print("🤔 Thinking...")
-            start_time = time.time()
-            
+            print("🤔 Thinking..."); start_time = time.time()
             try:
-                # Get conversation context
                 context = session.get_context(last_n=3)
-                
-                # Get answer with enhanced retrieval
                 answer, sources, retrieval_info = enhanced_answer(
-                    question=question,
-                    embeddings_path=embeddings_path,
-                    conversation_context=context,
-                    verbose=verbose_mode,
-                    timeout=args.timeout
-                )
-                
+                    question=question, embeddings_path=embeddings_path, conversation_context=context,
+                    verbose=verbose_mode, timeout=args.timeout)
                 total_time = time.time() - start_time
-                
-                # Display answer
-                print(f"\n🤖 Assistant ({total_time:.1f}s):")
-                print(answer.strip())
-                print(f"\n📚 Sources:")
-                print(sources)
-                
-                # Save to session
+                print(f"\n🤖 Assistant ({total_time:.1f}s):\n{answer.strip()}\n\n📚 Sources:\n{sources}")
                 session.add_exchange(question, answer, sources, retrieval_info)
-                
             except Exception as e:
                 print(f"❌ Error: {e}")
                 if verbose_mode:
-                    import traceback
-                    traceback.print_exc()
-    
+                    import traceback; traceback.print_exc()
     except KeyboardInterrupt:
         print("\n\n👋 Goodbye!")
-    
     return 0
 
 
