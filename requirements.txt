@@ -45,4 +45,8 @@ flashrank>=0.2.8
 # LiteLLM proxy client (Gemini via OpenAI-compatible route)
 litellm>=1.43.7
 
+# Web UI (local test GUI)
+flask>=3.0.3
+markdown>=3.6
+
  

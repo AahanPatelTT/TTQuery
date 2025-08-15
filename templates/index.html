@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TTQuery - Test GUI</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔍</text></svg>">
+</head>
+<body>
+    <div class="container">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <h1 class="sidebar-title">RAG Configuration</h1>
+            </div>
+            
+            <div class="sidebar-content">
+                <!-- System Prompt Section -->
+                <div class="section">
+                    <div class="section-header">System Prompt</div>
+                    <div class="param-row">
+                        <div style="flex: 1;">
+                            <label for="system-prompt">
+                                Custom system prompt
+                                <span class="help-icon">?
+                                    <div class="tooltip">Override the default system prompt to customize the AI's behavior and response style</div>
+                                </span>
+                            </label>
+                            <textarea 
+                                id="system-prompt" 
+                                rows="6" 
+                                placeholder="Enter custom system prompt or leave empty for default..."
+                                style="width: 100%; resize: vertical;">{{ system_prompt }}</textarea>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- RAG Parameters -->
+                <div class="section">
+                    <div class="section-header">Retrieval Parameters</div>
+                    <div class="grid">
+                        <div class="param-row">
+                            <div style="flex: 1;">
+                                <label for="topk">
+                                    Top K Contexts
+                                    <span class="help-icon">?
+                                        <div class="tooltip">Number of context chunks sent to the LLM. Higher values provide more context but may include noise. Recommended: 8-12</div>
+                                    </span>
+                                </label>
+                                <input id="topk" type="number" min="1" max="20" value="{{ topk }}" />
+                            </div>
+                        </div>
+                        <div class="param-row">
+                            <div style="flex: 1;">
+                                <label for="per-doc">
+                                    Per-Document Cap
+                                    <span class="help-icon">?
+                                        <div class="tooltip">Maximum chunks per document. Controls diversity vs depth. Lower values force broader coverage, higher allows deep focus</div>
+                                    </span>
+                                </label>
+                                <input id="per-doc" type="number" min="1" max="12" value="{{ per_doc }}" />
+                            </div>
+                        </div>
+                        <div class="param-row">
+                            <div style="flex: 1;">
+                                <label for="lambda-mmr">
+                                    MMR Lambda (λ)
+                                    <span class="help-icon">?
+                                        <div class="tooltip">Balances relevance vs diversity. 0.5 = high diversity, 1.0 = high relevance. Recommended: 0.7-0.8</div>
+                                    </span>
+                                </label>
+                                <input id="lambda-mmr" type="number" step="0.05" min="0" max="1" value="{{ lambda_mmr }}" />
+                            </div>
+                        </div>
+                        <div class="param-row">
+                            <div style="flex: 1;">
+                                <label for="timeout">
+                                    Timeout (seconds)
+                                    <span class="help-icon">?
+                                        <div class="tooltip">Maximum time to wait for LLM response. Increase for complex queries, decrease for faster responses</div>
+                                    </span>
+                                </label>
+                                <input id="timeout" type="number" min="10" max="180" value="{{ timeout }}" />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Debug Options -->
+                <div class="section">
+                    <div class="section-header">Debug Options</div>
+                    <div class="row">
+                        <input id="verbose" type="checkbox" />
+                        <label for="verbose">
+                            Verbose retrieval logging
+                            <span class="help-icon">?
+                                <div class="tooltip">Shows detailed retrieval steps in browser console. Useful for debugging and understanding how results are selected</div>
+                            </span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Actions -->
+                <div class="section">
+                    <div class="section-header">Actions</div>
+                    <div class="row" style="flex-wrap: wrap; gap: 8px;">
+                        <button id="save-config-btn" class="success">💾 Save Config</button>
+                        <button id="clear-chat-btn" class="danger">🗑️ Clear Chat</button>
+                        <button id="export-chat-btn">📄 Export</button>
+                    </div>
+                </div>
+
+                <!-- Session Management -->
+                <div class="section">
+                    <div class="section-header">
+                        Session Management
+                        <span class="help-icon">?
+                            <div class="tooltip">Manage conversation sessions. Sessions auto-save and can be resumed later to continue conversations</div>
+                        </span>
+                    </div>
+                    <div class="row">
+                        <select id="session-select" style="flex: 1;">
+                            <option value="">Select a session...</option>
+                        </select>
+                        <button id="refresh-sessions-btn" title="Refresh sessions">🔄</button>
+                    </div>
+                    <div class="row" style="margin-top: 12px; gap: 8px;">
+                        <button id="new-session-btn">🆕 New Session</button>
+                        <button id="load-session-btn">📂 Load Selected</button>
+                    </div>
+                    <div id="session-info" class="small" style="margin-top: 12px; padding: 8px; background: rgba(102, 126, 234, 0.1); border-radius: 6px;">
+                        Loading session info...
+                    </div>
+                </div>
+
+                <!-- Knowledge Base Info -->
+                <div class="section">
+                    <div class="section-header">Knowledge Base</div>
+                    <div class="small">
+                        <strong>Embeddings:</strong><br>
+                        <code style="word-break: break-all;">{{ embeddings_path }}</code>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main">
+            <div class="header">
+                <div>
+                    <h1 class="title">TTQuery Test Interface</h1>
+                    <div class="subtitle">Retrieval-Augmented Generation System</div>
+                </div>
+                <div id="status" class="small">
+                    <span class="status-dot offline"></span>Initializing...
+                </div>
+            </div>
+
+            <!-- Chat Area -->
+            <div id="chat" class="chat">
+                <!-- Messages will be added here dynamically -->
+            </div>
+
+            <!-- Input Footer -->
+            <div class="footer">
+                <textarea 
+                    id="question-input" 
+                    placeholder="Ask a question about your knowledge base..." 
+                    rows="1"
+                    style="flex: 1; resize: none; overflow: hidden; min-height: 40px;"></textarea>
+                <button id="send-btn" class="primary">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>

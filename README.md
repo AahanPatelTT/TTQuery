@@ -7,10 +7,13 @@ TTQuery is a complete RAG (Retrieval-Augmented Generation) system that transform
 ## ✨ **Key Features**
 
 ### **🧠 Intelligent Chat Interface**
+- **CLI & Web GUI**: Choose between command-line or modern web interface
 - **Conversation Memory**: Maintains context across multiple questions
 - **Interactive Commands**: Rich command system with session management
 - **Verbose Mode**: Shows detailed retrieval and ranking steps
 - **Session Export**: Save and resume conversations
+- **Real-time Configuration**: Adjust RAG parameters on-the-fly (GUI)
+- **Markdown Rendering**: Beautiful formatting for code, tables, and text (GUI)
 
 ### **🔍 Advanced Retrieval**
 - **Hybrid Search**: Dense (FAISS) + Sparse (BM25) retrieval with RRF fusion
@@ -77,15 +80,30 @@ The initialization script:
 - ✅ Provides detailed status and error recovery
 
 ### **4. Start Chatting!**
+
+**Option A: Command Line Interface**
 ```bash
-# Launch interactive chat interface
+# Launch interactive CLI chat interface
 python chat.py
 
 # With session persistence and verbose mode
 python chat.py --verbose --session research_session.json
 ```
 
+**Option B: Web GUI Interface** ⭐ **NEW**
+```bash
+# Launch modern web-based GUI
+python chat.py --test_gui
+
+# Then open http://127.0.0.1:7860 in your browser
+```
+
+📖 **See [GUI.md](GUI.md) for complete web interface documentation**
+
 ## 💬 **Chat Interface Guide**
+
+> 🌐 **For Web GUI users**: See [GUI.md](GUI.md) for complete web interface documentation  
+> 📟 **CLI users**: Continue reading below for command-line interface guide
 
 ### **Persistent Memory System**
 TTQuery automatically saves every conversation and resumes where you left off:
@@ -247,6 +265,21 @@ python pipeline/parse.py --cache-path "custom/cache.pkl"
 - ⚡ **Second run**: ~95% time reduction via cache hits
 - ⚡ **Incremental changes**: Only reprocess affected stages
 
+## 🌐 **Interface Comparison**
+
+| Feature | CLI | Web GUI |
+|---------|-----|---------|
+| **Conversation Memory** | ✅ | ✅ |
+| **Session Management** | ✅ | ✅ Enhanced |
+| **Verbose Mode** | ✅ | ✅ Console |
+| **Configuration** | Command-line args | ✅ Real-time |
+| **Markdown Rendering** | Plain text | ✅ Rich HTML |
+| **Real-time Parameter Tuning** | ❌ | ✅ |
+| **Visual Feedback** | Text-based | ✅ Modern UI |
+| **Export Options** | JSON | ✅ JSON + UI |
+
+📖 **[Detailed GUI Documentation →](GUI.md)**
+
 ## 📊 **Output Artifacts**
 
 ### **Pipeline Outputs**
@@ -255,7 +288,7 @@ python pipeline/parse.py --cache-path "custom/cache.pkl"
 - `artifacts/embeddings.jsonl`: Multi-vector embeddings with text
 
 ### **Session Files**
-- `session.json`: Conversation history with retrieval metadata
+- `sessions/`: Conversation history with retrieval metadata (CLI & GUI compatible)
 
 ## 🛠️ **Troubleshooting**
 
