@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TTQuery - Test GUI</title>
+    <title>Synapse - Test GUI</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔍</text></svg>">
 </head>
@@ -11,6 +11,7 @@
     <div class="container">
         <!-- Sidebar -->
         <div class="sidebar">
+            <div class="resize-handle"></div>
             <div class="sidebar-header">
                 <h1 class="sidebar-title">RAG Configuration</h1>
             </div>
@@ -149,7 +150,7 @@
         <div class="main">
             <div class="header">
                 <div>
-                    <h1 class="title">TTQuery Test Interface</h1>
+                    <h1 class="title">Synapse Test Interface</h1>
                     <div class="subtitle">Retrieval-Augmented Generation System</div>
                 </div>
                 <div id="status" class="small">

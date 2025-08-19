@@ -14,6 +14,7 @@ Design choices and rationale (high level):
   chunking can operate on semantically meaningful units instead of monolithic files.
 - Dependencies are free and local. OCR is optional and auto-detected to avoid forcing
   system-level installs if not needed.
+- NEW: Extract images/diagrams from PDFs and PPTXs as independent files with metadata
 
 Alternate approaches and upgrades:
 - unstructured.io (ENABLED by default here): Excellent element-level parsing across many
@@ -25,8 +26,9 @@ Alternate approaches and upgrades:
 
 How to run:
   python pipeline/parse.py \
-    --input "/Users/you/path/TTQuery/Data" \
-    --output "/Users/you/path/TTQuery/artifacts/parsed.jsonl"
+    --input "/Users/you/path/Synapse/Data" \
+    --output "/Users/you/path/Synapse/artifacts/parsed.jsonl" \
+    --extract-images
 
 Outputs:
 - JSONL file where each line is a dict:
@@ -38,6 +40,10 @@ Outputs:
     "content": "extracted text",
     "metadata": { "page_number": 3, "slide_number": null, "heading_path": ["H1", "H2"], ... }
   }
+- When --extract-images is used:
+  - artifacts/extracted_images/ directory with image files
+  - artifacts/image_metadata.json with image metadata
+  - Additional image chunks in the JSONL output
 
 From launch to query response (big picture):
 - This module performs Parse only. It prepares the raw materials with citations that the
@@ -56,6 +62,7 @@ import pickle
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Dict, Iterable, Iterator, List, Optional, Tuple, Callable
+from datetime import datetime
 
 
 # Optional/soft dependencies. Import lazily where used to keep startup fast.
@@ -508,6 +515,39 @@ def parse_text(file_path: str) -> Iterator[ParsedChunk]:
     )
 
 
+def correct_ocr_common_errors(ocr_text: str) -> str:
+    """Apply common OCR error corrections for technical diagrams."""
+    if not ocr_text:
+        return ocr_text
+    
+    corrections = {
+        # Common OCR errors in technical diagrams
+        "12C": "I2C",
+        "I3C": "I2C", 
+        "SPI ": "SPI ",
+        "UARTx": "UART x",
+        "GPIOx": "GPIO x",
+        "CANFD": "CAN-FD",
+        "CANFDx": "CAN-FD x",
+        "SPIx": "SPI x",
+        "I2Cx": "I2C x",
+        " x ": " x",  # normalize spacing around x
+        "×": "x",      # replace multiplication symbol with x
+        "Timer": "Timer",
+        "WDT": "WDT",
+    }
+    
+    result = ocr_text
+    for error, correction in corrections.items():
+        result = result.replace(error, correction)
+    
+    # Add context clues for better interpretation
+    if any(term in result.upper() for term in ["TIMER", "WDT", "CANFD", "CAN-FD", "SPI", "I2C", "UART", "GPIO"]):
+        result += "\n[Technical diagram showing system peripherals and interfaces]"
+    
+    return result
+
+
 def parse_image_basic(
     file_path: str,
     captioner: Optional[Callable[["object"], str]] = None,
@@ -536,9 +576,23 @@ def parse_image_basic(
 
     if image is not None and pytesseract is not None:
         try:
-            ocr_text = pytesseract.image_to_string(image) or ""
+            # Use better OCR configuration for technical diagrams
+            custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ×x-/()[]{}:.,;'
+            ocr_text = pytesseract.image_to_string(image, config=custom_config) or ""
+            
+            # Fallback to default if custom config fails
+            if not ocr_text.strip():
+                ocr_text = pytesseract.image_to_string(image) or ""
+                
+            # Apply OCR error corrections
+            ocr_text = correct_ocr_common_errors(ocr_text)
         except Exception:
-            ocr_text = ""
+            try:
+                # Fallback to default OCR
+                ocr_text = pytesseract.image_to_string(image) or ""
+                ocr_text = correct_ocr_common_errors(ocr_text)
+            except Exception:
+                ocr_text = ""
 
     if image is not None and captioner is not None:
         try:
@@ -715,6 +769,22 @@ def parse_file_unstructured(
             except Exception:
                 elements = []
             ocr_text = "\n".join((getattr(el, "text", "") or "") for el in elements).strip()
+            
+            # Apply OCR error corrections to unstructured results
+            ocr_text = correct_ocr_common_errors(ocr_text)
+            
+            # Try enhanced OCR if unstructured didn't produce good results
+            if not ocr_text.strip():
+                try:
+                    import pytesseract  # type: ignore
+                    from PIL import Image  # type: ignore
+                    if pytesseract is not None and Image is not None:
+                        img = Image.open(file_path)
+                        custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ×x-/()[]{}:.,;'
+                        ocr_text = pytesseract.image_to_string(img, config=custom_config) or ""
+                        ocr_text = correct_ocr_common_errors(ocr_text)
+                except Exception:
+                    pass
             caption_text = ""
             try:
                 from PIL import Image  # type: ignore
@@ -948,6 +1018,114 @@ def write_jsonl(chunks: Iterable[ParsedChunk], out_path: str) -> None:
     logging.info("Wrote %d parsed chunks to %s", count, out_path)
 
 
+def extract_images_from_file(file_path: str, pdf_extractor, pptx_extractor, parsed_chunks: List[ParsedChunk]):
+    """Extract images from a file based on its type."""
+    try:
+        from pipeline.image_extractor import ExtractedImage
+    except ImportError:
+        # If running from the Synapse directory, try relative import
+        pipeline_path = os.path.join(os.path.dirname(__file__))
+        if pipeline_path not in sys.path:
+            sys.path.insert(0, pipeline_path)
+        from image_extractor import ExtractedImage
+    
+    file_ext = os.path.splitext(file_path)[1].lower()
+    extracted_images = []
+    
+    try:
+        if file_ext == ".pdf" and pdf_extractor:
+            # Build page context from parsed chunks for better image metadata
+            page_context = {}
+            for chunk in parsed_chunks:
+                if chunk.source_type == "pdf":
+                    page_num = chunk.metadata.get("page_number")
+                    if page_num:
+                        page_text = page_context.get(page_num, "")
+                        page_context[page_num] = page_text + " " + chunk.content
+            
+            extracted_images = pdf_extractor.extract_images_pymupdf(file_path, page_context)
+            
+        elif file_ext == ".pptx" and pptx_extractor:
+            extracted_images = pptx_extractor.extract_images(file_path)
+            
+    except Exception as e:
+        logging.warning("Failed to extract images from %s: %s", file_path, e)
+    
+    return extracted_images
+
+
+def convert_images_to_chunks(extracted_images) -> List[ParsedChunk]:
+    """Convert ExtractedImage objects to ParsedChunk objects for the pipeline."""
+    chunks = []
+    
+    for img in extracted_images:
+        try:
+            # Create a comprehensive text description combining all image information
+            content_parts = []
+            
+            # Add image type and basic info
+            content_parts.append(f"Image Type: {img.image_type}")
+            content_parts.append(f"Dimensions: {img.width}x{img.height} pixels")
+            
+            # Add AI-generated caption if available
+            if img.caption_text:
+                content_parts.append(f"Caption: {img.caption_text}")
+            
+            # Add OCR text if available
+            if img.ocr_text:
+                content_parts.append(f"OCR Text: {img.ocr_text}")
+            
+            # Add technical keywords
+            if img.technical_keywords:
+                content_parts.append(f"Technical Keywords: {', '.join(img.technical_keywords)}")
+            
+            # Add document context (truncated)
+            if img.document_context:
+                context_preview = img.document_context[:500] + "..." if len(img.document_context) > 500 else img.document_context
+                content_parts.append(f"Document Context: {context_preview}")
+            
+            content = "\n\n".join(content_parts)
+            
+            # Create locator for the image
+            locator = f"image:{img.page_number or 'unknown'}"
+            
+            # Compute chunk ID
+            chunk_id = compute_chunk_id(img.source_document, locator, content)
+            
+            # Create metadata
+            metadata = {
+                "page_number": img.page_number,
+                "file_name": os.path.basename(img.source_document),
+                "image_path": img.image_path,
+                "image_id": img.image_id,
+                "image_type": img.image_type,
+                "image_format": img.image_format,
+                "width": img.width,
+                "height": img.height,
+                "extraction_method": img.extraction_method,
+                "technical_keywords": img.technical_keywords,
+                "has_ocr": bool(img.ocr_text),
+                "has_caption": bool(img.caption_text),
+                "content_format": "extracted_image"
+            }
+            
+            chunk = ParsedChunk(
+                id=chunk_id,
+                document_id=compute_document_id(img.source_document),
+                source_path=img.source_document,
+                source_type="image",  # Mark as image type for special handling
+                content=content,
+                metadata=metadata
+            )
+            
+            chunks.append(chunk)
+            
+        except Exception as e:
+            logging.warning("Failed to convert extracted image to chunk: %s", e)
+    
+    return chunks
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Parse documents into normalized JSONL chunks")
     default_input = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "Data"))
@@ -963,8 +1141,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         "--engine",
         type=str,
         choices=["unstructured", "basic"],
-        default="unstructured",
-        help="Parsing engine to use. 'unstructured' enables high-fidelity OCR & tables; 'basic' uses lightweight parsers.",
+        default="basic",
+        help="Parsing engine to use. 'basic' uses lightweight parsers (fast); 'unstructured' enables high-fidelity OCR & tables (slow).",
     )
     parser.add_argument("--pdf-strategy", type=str, default="hi_res", choices=["hi_res", "fast"], help="Unstructured PDF strategy: 'hi_res' uses OCR/layout for scanned/complex docs; 'fast' is text-first")
     parser.add_argument("--ocr-languages", type=str, default="eng", help="OCR languages (space-separated, e.g., 'eng deu jpn') for unstructured")
@@ -1004,6 +1182,22 @@ def main(argv: Optional[List[str]] = None) -> int:
         type=int,
         default=64,
         help="Max new tokens for caption generation",
+    )
+    parser.add_argument(
+        "--extract-images",
+        action="store_true",
+        help="Extract images/diagrams from PDFs and PPTXs as independent files",
+    )
+    parser.add_argument(
+        "--images-output-dir",
+        type=str,
+        default=os.path.join(default_output_dir, "extracted_images"),
+        help="Directory to save extracted images",
+    )
+    parser.add_argument(
+        "--enable-image-captioning", 
+        action="store_true", 
+        help="Enable AI captioning for extracted images (slower, may hit rate limits)"
     )
     parser.add_argument(
         "--no-cache",
@@ -1065,6 +1259,27 @@ def main(argv: Optional[List[str]] = None) -> int:
         pdf_tables_as_csv=not args.no_pdf_tables_as_csv,
         pdf_table_extractor=args.pdf_table_extractor,
     )
+    # Initialize image extraction if requested
+    all_extracted_images = []
+    if args.extract_images:
+        try:
+            # Try different import paths for the image extractor
+            try:
+                from pipeline.image_extractor import PDFImageExtractor, PPTXImageExtractor, save_image_metadata
+            except ImportError:
+                # If running from the Synapse directory, try relative import
+                pipeline_path = os.path.join(os.path.dirname(__file__))
+                if pipeline_path not in sys.path:
+                    sys.path.insert(0, pipeline_path)
+                from image_extractor import PDFImageExtractor, PPTXImageExtractor, save_image_metadata
+            
+            pdf_extractor = PDFImageExtractor(output_dir=args.images_output_dir, enable_captioning=args.enable_image_captioning)
+            pptx_extractor = PPTXImageExtractor(output_dir=args.images_output_dir, enable_captioning=args.enable_image_captioning)
+            logging.info("Image extraction enabled - will extract images from PDFs and PPTXs")
+        except ImportError as e:
+            logging.warning("Image extraction disabled due to missing dependencies: %s", e)
+            args.extract_images = False
+
     for file_path in iter_files(input_dir):
         # Check cache first
         if not args.no_cache and is_file_cached(file_path, cache):
@@ -1089,11 +1304,29 @@ def main(argv: Optional[List[str]] = None) -> int:
                 if not args.no_cache:
                     add_to_cache(file_path, chunks, cache)
         
+        # Extract images if requested
+        if args.extract_images:
+            extracted_images = extract_images_from_file(
+                file_path, pdf_extractor, pptx_extractor, chunks
+            )
+            if extracted_images:
+                all_extracted_images.extend(extracted_images)
+                # Convert extracted images to ParsedChunk objects and add to chunks
+                image_chunks = convert_images_to_chunks(extracted_images)
+                chunks.extend(image_chunks)
+                logging.debug("Extracted %d images from %s", len(extracted_images), file_path)
+        
         all_chunks.extend(chunks)
 
     # Sort for reproducibility (by source then locator-ish via id)
     all_chunks.sort(key=lambda c: (c.source_path, c.id))
     write_jsonl(all_chunks, output_path)
+    
+    # Save image metadata if images were extracted
+    if args.extract_images and all_extracted_images:
+        metadata_path = os.path.join(os.path.dirname(output_path), "image_metadata.json")
+        save_image_metadata(all_extracted_images, metadata_path)
+        logging.info("Saved metadata for %d extracted images to %s", len(all_extracted_images), metadata_path)
     
     # Save cache
     if not args.no_cache:
@@ -1142,6 +1375,36 @@ def main(argv: Optional[List[str]] = None) -> int:
     # Count by unique documents
     unique_docs = len(set(chunk.document_id for chunk in all_chunks))
     print(f"📚 UNIQUE DOCUMENTS: {unique_docs}")
+    
+    # Image extraction summary
+    if args.extract_images:
+        print(f"🖼️  IMAGE EXTRACTION:")
+        if all_extracted_images:
+            print(f"   📷 Total images extracted: {len(all_extracted_images)}")
+            print(f"   💾 Images saved to: {args.images_output_dir}")
+            print(f"   📋 Metadata saved to: {os.path.join(os.path.dirname(output_path), 'image_metadata.json')}")
+            
+            # Break down by image type
+            image_types = {}
+            for img in all_extracted_images:
+                img_type = img.image_type
+                image_types[img_type] = image_types.get(img_type, 0) + 1
+            
+            print(f"   📊 Images by type:")
+            for img_type, count in sorted(image_types.items()):
+                print(f"      {img_type}: {count}")
+        else:
+            print(f"   📷 No images extracted (may be none found or extraction failed)")
+    else:
+        print(f"🖼️  IMAGE EXTRACTION: Disabled (use --extract-images to enable)")
+    
+    # Show unstructured command for higher quality processing
+    if args.engine == "basic":
+        print(f"🔬 FOR HIGHER QUALITY (OCR + ADVANCED TABLES):")
+        unstructured_cmd = f"python3 pipeline/parse.py --engine unstructured --input \"{input_dir}\" --output \"{output_path.replace('.jsonl', '_unstructured.jsonl')}\""
+        print(f"   pip3 install \"unstructured[all-docs]\" unstructured-inference")
+        print(f"   {unstructured_cmd}")
+        print(f"   ⚠️  Note: Unstructured processing takes 10-50x longer but provides OCR for scanned PDFs")
     
     print("="*80)
     print("✅ PARSING COMPLETED SUCCESSFULLY!")

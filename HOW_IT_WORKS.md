@@ -1,10 +1,10 @@
-## How TTQuery Works
+## How Synapse Works
 
-TTQuery is a comprehensive RAG (Retrieval-Augmented Generation) system that transforms document collections into intelligent, conversational knowledge bases. This document explains the technical implementation, design decisions, and architectural choices.
+Synapse is a comprehensive RAG (Retrieval-Augmented Generation) system that transforms document collections into intelligent, conversational knowledge bases. This document explains the technical implementation, design decisions, and architectural choices.
 
 ## System Overview
 
-TTQuery provides two primary interfaces:
+Synapse provides two primary interfaces:
 
 ### **🚀 Automated Setup (`initialize.py`)**
 - **One-command initialization**: Runs complete Parse → Chunk → Embed pipeline
@@ -23,6 +23,7 @@ TTQuery provides two primary interfaces:
    - Walks the `Data/` directory and normalizes documents into a unified JSONL format with rich metadata for citations.
    - Default engine is unstructured.io for high‑fidelity parsing. A lightweight basic engine exists for resilience.
    - **PPTX native tables**: Extracts real PowerPoint tables (via `python-pptx`) per slide and serializes as CSV with `metadata.content_format="csv"`, `slide_number`, and `table_index`.
+   - **Image extraction** ⭐ **NEW**: Extracts diagrams, charts, and technical illustrations from PDFs and PPTXs with rich metadata including OCR text, document context, and AI captions (optional).
    - **Caching**: Tracks file modification times and sizes. Only reparses changed files.
 
 2. Chunk (parsed.jsonl → chunked.jsonl) **[Cached]**
@@ -55,11 +56,15 @@ TTQuery provides two primary interfaces:
      - Maximal Marginal Relevance (MMR) reduces redundancy and increases coverage.
    - **Coherent context selection**:
      - Prefer multiple chunks from the top-ranked document to maximize continuity for slide decks and long sections.
+   - **Image matching** ⭐ **NEW**:
+     - Identifies relevant diagrams based on query content and document context from retrieved chunks.
+     - Includes full image paths for viewing extracted technical diagrams and illustrations.
    - **Generate**:
      - Uses Gemini 2.5 Pro via TensTorrent LiteLLM proxy (`LITELLM_BASE_URL`, `LITELLM_API_KEY`).
      - **Conversation context**: Previous Q&A exchanges inform new responses.
      - Strict inline citations `[n]` per claim; bottom Sources block includes `source_path` and page/slide when available.
      - **Table-aware prompting**: CSV/table chunks render a compact Markdown table preview (first rows/cols). Native PPTX tables are included via parsed CSV.
+     - **Visual content inclusion**: Relevant image paths are automatically included when queries reference diagrams or visual content.
 
     Quick smoke test for the proxy is available via `LiteLLM.py`:
 ```bash
@@ -117,10 +122,19 @@ python pipeline/embed.py --cache-path "custom/embed_cache.pkl" --input "artifact
 - **Config changes**: Intelligent invalidation ensures correctness
 
 ### Artifacts and flow
-- `artifacts/parsed.jsonl`: One line per parsed element with `id`, `document_id`, `source_path`, `source_type`, `content`, and `metadata` (page/slide numbers, heading paths, element type, coordinates when available). Includes native PPTX tables serialized to CSV with `content_format="csv"` and `table_index`.
-- `artifacts/chunked.jsonl`: One line per chunk with `num_tokens` and `chunk_index`, preserving provenance metadata for citations. Includes atomic slide chunks and windowed slide chunks for PPTX.
+- `artifacts/parsed.jsonl`: One line per parsed element with `id`, `document_id`, `source_path`, `source_type`, `content`, and `metadata` (page/slide numbers, heading paths, element type, coordinates when available). Includes native PPTX tables serialized to CSV with `content_format="csv"` and `table_index`. Image elements include rich visual metadata.
+- `artifacts/chunked.jsonl`: One line per chunk with `num_tokens` and `chunk_index`, preserving provenance metadata for citations. Includes atomic slide chunks and windowed slide chunks for PPTX, plus image description chunks.
 - `artifacts/embeddings.jsonl`: One line per chunk with `summary_text`, `full_text`, and their embeddings (`embedding_summary`, `embedding_full`). These are consumed by the query stage for FAISS and BM25 indexing at runtime.
   - When the ColBERT provider is used, token-level vectors are also emitted as `embedding_summary_mv` and `embedding_full_mv` and pooled vectors are kept for compatibility.
+
+### Image Processing Artifacts ⭐ **NEW**
+- `artifacts/extracted_images/`: Individual image files (PNG format) with descriptive filenames including document name, page number, and unique ID.
+- `artifacts/image_metadata.json`: Rich metadata for all extracted images including:
+  - OCR text extracted from the image
+  - Document context from surrounding text  
+  - Technical keywords and image categorization (diagram, chart, flowchart, etc.)
+  - Source document, page number, and extraction method
+  - Image dimensions, file size, and format information
 
 ### Important design choices (and why)
 - Unstructured‑first parsing
@@ -136,9 +150,13 @@ python pipeline/embed.py --cache-path "custom/embed_cache.pkl" --input "artifact
   - **PPTX tables** are extracted natively and serialized to CSV, enabling true table retrieval and reconstruction.
   - Before embedding, tables are linearized into sentences that name columns and sample rows—this makes them retrievable by meaning, not layout.
 
-- Images → captioning + OCR + context
-  - Images are converted to text by combining a vision caption (e.g., BLIP) with OCR.
-  - We also augment captions with nearby page text to reflect surrounding context.
+- Images → extraction + OCR + context + optional AI captioning ⭐ **ENHANCED**
+  - Images are extracted as independent PNG files with rich metadata for direct viewing.
+  - OCR text is extracted from images using Tesseract for searchable technical content.
+  - Document context from surrounding page text is preserved for relevance matching.
+  - Optional AI captioning (BLIP) can be enabled but is disabled by default to avoid rate limiting.
+  - Images are categorized by type (diagram, chart, flowchart, table) for better organization.
+  - Technical keywords are extracted to improve retrieval relevance for engineering queries.
 
 - Smart chunking with overlap
   - Markdown is split with heading awareness; other text uses sentence‑aware packing.
@@ -165,10 +183,68 @@ python pipeline/embed.py --cache-path "custom/embed_cache.pkl" --input "artifact
 - Deterministic IDs and sorted outputs make runs reproducible across environments.
 
 ### Operational knobs (non‑exhaustive)
-- Parser: `--engine [unstructured|basic]`, `--pdf-strategy`, `--ocr-languages`, table extractor and CSV conversion flags, image captioning flags.
+- Parser: `--engine [unstructured|basic]`, `--pdf-strategy`, `--ocr-languages`, table extractor and CSV conversion flags.
+  - **Image extraction** ⭐ **NEW**: `--extract-images`, `--enable-image-captioning`, `--images-output-dir` for controlling visual content processing.
 - Chunker: `--target-tokens`, `--overlap`, tokenizer selection.
 - Embedder: local sentence-transformers or OpenAI; summary mode (heuristic/LLM).
   - ColBERT provider adds native multi-vector (token-level) embeddings with pooled compatibility vectors.
+- Query: `--chunked` flag required for image inclusion in responses.
+
+## Visual Content Processing ⭐ **NEW**
+
+### **Image Extraction Pipeline**
+
+**PDF Image Extraction**
+- **PyMuPDF Integration**: Uses PyMuPDF (fitz) for fast, reliable image extraction from PDF documents
+- **Page Context Preservation**: Captures surrounding text from the PDF page to provide document context
+- **Multiple Format Support**: Handles various embedded image formats (PNG, JPEG, etc.)
+- **Metadata Enrichment**: Generates comprehensive metadata including page numbers, coordinates, and document hierarchy
+
+**PPTX Image Extraction**  
+- **Native PowerPoint Processing**: Uses python-pptx for direct access to slide images
+- **Slide Context Integration**: Associates images with slide titles and bullet points for semantic understanding
+- **Presentation Flow Awareness**: Maintains slide sequence context for better retrieval relevance
+
+**OCR Text Extraction**
+- **Tesseract Integration**: Extracts searchable text from technical diagrams and charts
+- **Technical Content Optimization**: Specialized character whitelisting for engineering terminology
+- **Error Correction**: Common OCR error corrections for technical terms (I2C, GPIO, CPU, etc.)
+
+**AI Caption Generation (Optional)**
+- **BLIP Model Integration**: Uses Salesforce BLIP for natural language image descriptions
+- **Rate Limiting Protection**: Disabled by default to prevent HuggingFace API throttling
+- **Model Caching**: Efficient model loading and reuse across multiple images
+- **Graceful Degradation**: Continues processing if AI captioning fails
+
+### **Image Metadata Architecture**
+
+**Rich Metadata Structure**
+- **Unique Identification**: SHA-256 hash-based IDs for deterministic image tracking
+- **Source Attribution**: Full document path, page/slide numbers, and extraction method
+- **Visual Properties**: Dimensions, file size, format, and quality metrics
+- **Content Analysis**: OCR text, document context, and optional AI captions
+- **Technical Classification**: Automatic categorization (diagram, chart, flowchart, table)
+- **Keyword Extraction**: Technical terms relevant for engineering queries
+
+**Contextual Information**
+- **Document Context**: Surrounding page text that provides semantic meaning
+- **Hierarchical Location**: Section headings, slide titles, and document structure
+- **Technical Keywords**: Domain-specific terms extracted for improved retrieval
+- **Image Relationships**: Cross-references to related text and tables
+
+### **Smart Image Retrieval**
+
+**Context-Based Matching**
+- **Query Relevance**: Matches user questions to image content and surrounding context
+- **Document Coherence**: Prioritizes images from highly relevant retrieved text chunks
+- **Technical Domain Awareness**: Enhanced matching for engineering and technical queries
+- **Semantic Understanding**: Uses both OCR text and document context for relevance scoring
+
+**Integration with Retrieval Pipeline**
+- **Hybrid Search Support**: Images participate in both dense and sparse retrieval
+- **Reranking Integration**: Image relevance considered in cross-encoder reranking
+- **MMR Diversification**: Images contribute to response diversity and coverage
+- **Citation Integration**: Image paths provided alongside traditional text citations
 
 ## Enhanced User Experience
 
@@ -284,10 +360,11 @@ When enabled (`/verbose` in chat or `--verbose` flag), the system displays:
 ### **Future Enhancements**
 
 **Planned Features**
-- **Multi-modal enhancement**: Advanced image and diagram understanding
-- **Temporal awareness**: Time-based relevance and freshness scoring
+- **Advanced image understanding**: Enhanced diagram analysis and technical illustration processing
+- **Temporal awareness**: Time-based relevance and freshness scoring  
 - **User personalization**: Adaptive ranking based on usage patterns
 - **Distributed processing**: Scale to larger document collections
+- **Interactive image viewing**: In-browser image display and annotation capabilities
 
 ### **Maintenance and Updates**
 
@@ -295,6 +372,7 @@ Keep this document updated as new features are added, especially:
 - New interactive commands and chat capabilities
 - Additional embedding providers and models
 - Enhanced retrieval strategies and ranking methods
+- **Visual content processing improvements and new image formats** ⭐ **NEW**
 - Performance optimizations and caching improvements
 - User experience enhancements and automation features
 

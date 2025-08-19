@@ -1,8 +1,8 @@
 /**
- * TTQuery GUI - Main JavaScript Module
+ * Synapse GUI - Main JavaScript Module
  */
 
-class TTQueryApp {
+class SynapseApp {
   constructor() {
     this.config = {};
     this.isLoading = false;
@@ -18,6 +18,8 @@ class TTQueryApp {
       await this.loadSessions();
       await this.loadHistory();
       this.setupEventListeners();
+      this.setupResizer();
+      this.setupTooltips();
       this.showStatus('Ready', 'online');
     } catch (error) {
       this.showError('Failed to initialize app', error);
@@ -72,6 +74,98 @@ class TTQueryApp {
     if (verboseCheckbox) {
       verboseCheckbox.addEventListener('change', () => this.saveConfig(false));
     }
+  }
+
+  setupResizer() {
+    const resizeHandle = document.querySelector('.resize-handle');
+    const sidebar = document.querySelector('.sidebar');
+    
+    if (!resizeHandle || !sidebar) return;
+
+    let isResizing = false;
+    let startX = 0;
+    let startWidth = 0;
+
+    resizeHandle.addEventListener('mousedown', (e) => {
+      isResizing = true;
+      startX = e.clientX;
+      startWidth = parseInt(window.getComputedStyle(sidebar).width, 10);
+      
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      
+      e.preventDefault();
+    });
+
+    const handleMouseMove = (e) => {
+      if (!isResizing) return;
+      
+      const deltaX = e.clientX - startX;
+      const newWidth = Math.max(280, Math.min(600, startWidth + deltaX));
+      
+      sidebar.style.width = newWidth + 'px';
+    };
+
+    const handleMouseUp = () => {
+      isResizing = false;
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      
+      // Save the width to localStorage
+      const currentWidth = parseInt(window.getComputedStyle(sidebar).width, 10);
+      localStorage.setItem('synapse-sidebar-width', currentWidth);
+    };
+
+    // Restore saved width on load
+    const savedWidth = localStorage.getItem('synapse-sidebar-width');
+    if (savedWidth) {
+      const width = Math.max(280, Math.min(600, parseInt(savedWidth, 10)));
+      sidebar.style.width = width + 'px';
+    }
+  }
+
+  setupTooltips() {
+    // Fix tooltip z-index issues by ensuring they're always positioned correctly
+    const helpIcons = document.querySelectorAll('.help-icon');
+    
+    helpIcons.forEach(icon => {
+      const tooltip = icon.querySelector('.tooltip');
+      if (!tooltip) return;
+
+      icon.addEventListener('mouseenter', () => {
+        // Force tooltip to be visible above everything
+        tooltip.style.zIndex = '999999';
+        
+        // Check if tooltip would go off screen and adjust position
+        const iconRect = icon.getBoundingClientRect();
+        const tooltipRect = tooltip.getBoundingClientRect();
+        
+        // If tooltip would go off the top of the screen, position it below the icon instead
+        if (iconRect.top - tooltipRect.height < 10) {
+          tooltip.style.bottom = 'auto';
+          tooltip.style.top = '100%';
+          tooltip.style.marginTop = '8px';
+          tooltip.style.marginBottom = '0';
+        } else {
+          tooltip.style.bottom = '100%';
+          tooltip.style.top = 'auto';
+          tooltip.style.marginTop = '0';
+          tooltip.style.marginBottom = '8px';
+        }
+      });
+
+      icon.addEventListener('mouseleave', () => {
+        // Reset positioning
+        tooltip.style.bottom = '100%';
+        tooltip.style.top = 'auto';
+        tooltip.style.marginTop = '0';
+        tooltip.style.marginBottom = '8px';
+      });
+    });
   }
 
   async loadConfig() {
@@ -201,7 +295,7 @@ class TTQueryApp {
         throw new Error(data.error || 'Unknown error');
       }
 
-      this.addMessage('assistant', data.answer || '', data.answer_html || '', data.sources_html || '');
+      this.addMessage('assistant', data.answer || '', data.answer_html || '', data.sources_html || '', data.images || []);
       
       if (data.retrieval_info && this.config.verbose) {
         console.log('Retrieval info:', data.retrieval_info);
@@ -215,7 +309,7 @@ class TTQueryApp {
     }
   }
 
-  addMessage(role, text, html = '', sourcesHtml = '') {
+  addMessage(role, text, html = '', sourcesHtml = '', images = []) {
     const chat = document.getElementById('chat');
     const messageDiv = document.createElement('div');
     messageDiv.className = `msg ${role === 'user' ? 'me' : 'bot'}`;
@@ -223,18 +317,94 @@ class TTQueryApp {
     if (role === 'user') {
       messageDiv.textContent = text;
     } else {
-      const content = html || this.escapeHtml(text);
+      let content;
+      if (html && html.trim()) {
+        // Use provided HTML
+        content = html;
+      } else if (text && text.trim()) {
+        // Convert plain text to HTML with basic formatting
+        content = this.formatPlainText(text);
+      } else {
+        content = '';
+      }
+      
       let fullContent = content;
       
-      if (sourcesHtml) {
+      // Add images if present
+      if (role === 'assistant' && images && images.length > 0) {
+        let imagesHtml = '<div class="message-images">';
+        images.forEach((imagePath, index) => {
+          const imageUrl = `/api/image/${encodeURIComponent(imagePath)}`;
+          const fileName = imagePath.split('/').pop() || `Image ${index + 1}`;
+          imagesHtml += `
+            <div class="image-container">
+              <img src="${imageUrl}" alt="${fileName}" class="message-image" onclick="window.open('${imageUrl}', '_blank')" />
+              <div class="image-caption">${fileName}</div>
+            </div>
+          `;
+        });
+        imagesHtml += '</div>';
+        fullContent += imagesHtml;
+      }
+      
+      if (sourcesHtml && sourcesHtml.trim()) {
         fullContent += `<div class="sources">${sourcesHtml}</div>`;
       }
       
       messageDiv.innerHTML = fullContent;
+      
+      // Convert asterisk-based lists to proper HTML lists
+      if (role === 'assistant') {
+        this.convertAsterisksToBullets(messageDiv);
+      }
     }
     
     chat.appendChild(messageDiv);
     chat.scrollTop = chat.scrollHeight;
+  }
+
+  formatPlainText(text) {
+    // Convert plain text to HTML with basic formatting
+    return text
+      .replace(/\n\n/g, '</p><p>')  // Double newlines become paragraphs
+      .replace(/\n/g, '<br>')       // Single newlines become breaks
+      .replace(/^/, '<p>')          // Start with paragraph
+      .replace(/$/, '</p>');        // End with paragraph
+  }
+
+  convertAsterisksToBullets(element) {
+    // Convert asterisk-based lists to proper HTML lists
+    const paragraphs = element.querySelectorAll('p');
+    let currentList = null;
+    let elementsToRemove = [];
+
+    paragraphs.forEach(p => {
+      const text = p.textContent.trim();
+      
+      // Check if paragraph starts with asterisk
+      if (text.startsWith('* ')) {
+        // Remove asterisk and create list item
+        const listItemText = text.substring(2);
+        
+        // Create or continue list
+        if (!currentList) {
+          currentList = document.createElement('ul');
+          p.parentNode.insertBefore(currentList, p);
+        }
+        
+        const listItem = document.createElement('li');
+        listItem.innerHTML = listItemText;
+        currentList.appendChild(listItem);
+        
+        elementsToRemove.push(p);
+      } else {
+        // Reset list when we encounter non-asterisk paragraph
+        currentList = null;
+      }
+    });
+
+    // Remove original asterisk paragraphs
+    elementsToRemove.forEach(el => el.remove());
   }
 
   clearChatUI() {
@@ -264,7 +434,7 @@ class TTQueryApp {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'ttquery_session_export.json';
+      a.download = 'synapse_session_export.json';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -362,7 +532,7 @@ class TTQueryApp {
       border-radius: 8px;
       color: white;
       font-weight: 500;
-      z-index: 1000;
+      z-index: 99999;
       opacity: 0;
       transform: translateY(-20px);
       transition: all 0.3s ease;
@@ -410,5 +580,5 @@ class TTQueryApp {
 
 // Initialize the app when the DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-  window.ttqueryApp = new TTQueryApp();
+  window.synapseApp = new SynapseApp();
 });

@@ -1,8 +1,8 @@
-# TTQuery: Enterprise RAG Pipeline
+# Synapse: Enterprise RAG Pipeline
 
 **Intelligent Document Q&A with Conversation Memory and Advanced Retrieval**
 
-TTQuery is a complete RAG (Retrieval-Augmented Generation) system that transforms your document collections into an intelligent, conversational knowledge base. Built for engineering teams, it provides precise, cited answers through an intuitive chat interface.
+Synapse is a complete RAG (Retrieval-Augmented Generation) system that transforms your document collections into an intelligent, conversational knowledge base. Built for engineering teams, it provides precise, cited answers through an intuitive chat interface.
 
 ## ✨ **Key Features**
 
@@ -24,6 +24,13 @@ TTQuery is a complete RAG (Retrieval-Augmented Generation) system that transform
 - **PPTX-native tables**: Extracts real PPTX tables into CSV at parse time for accurate table retrieval and reconstruction
 - **Slide cohesion**: Keeps slides atomic and adds small slide-window chunks for context; prompt stitches multiple chunks from the same deck coherently
 
+### **🖼️ Visual Content Processing** ⭐ **NEW**
+- **Image Extraction**: Automatically extracts diagrams, charts, and illustrations from PDFs and PPTXs
+- **Rich Image Metadata**: OCR text, document context, technical keywords, and categorization
+- **Smart Image Retrieval**: Returns relevant diagrams when queries reference visual content
+- **Visual Citation**: Full image paths provided for viewing extracted diagrams
+- **Technical Diagram Understanding**: Specialized processing for block diagrams, flowcharts, and technical illustrations
+
 ## 🎯 **Quick Start**
 
 ### **Prerequisites**
@@ -39,7 +46,7 @@ python3 --version
 ```bash
 # Clone and setup environment
 git clone <repository-url>
-cd TTQuery
+cd Synapse
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -65,6 +72,8 @@ source ~/.zshrc
 ```
 
 ### **3. Initialize Knowledge Base**
+Add desired files in a simple (.csv/.md) or regular formats like .pdf, .pptx, .docx etc. These files will processed to construct the knowledge base.
+
 ```bash
 # Automated pipeline: Parse → Chunk → Embed
 python initialize.py
@@ -106,7 +115,7 @@ python chat.py --test_gui
 > 📟 **CLI users**: Continue reading below for command-line interface guide
 
 ### **Persistent Memory System**
-TTQuery automatically saves every conversation and resumes where you left off:
+Synapse automatically saves every conversation and resumes where you left off:
 
 - 🔄 **Auto-Resume**: Continues your most recent session (within 24 hours)
 - 💾 **Auto-Save**: Every exchange is immediately saved to disk
@@ -185,11 +194,18 @@ python initialize.py --verbose          # Detailed output for debugging
 If you prefer step-by-step control:
 
 ```bash
-# 1. Parse documents
+# 1. Parse documents with image extraction
 python pipeline/parse.py \
   --input "Data/" \
   --output "artifacts/parsed.jsonl" \
-  --engine unstructured --verbose
+  --extract-images \
+  --verbose
+
+# For high-quality OCR processing (slower):
+# python pipeline/parse.py --engine unstructured --input "Data/" --output "artifacts/parsed.jsonl" --extract-images
+
+# With AI image captioning (slower, may hit rate limits):
+# python pipeline/parse.py --input "Data/" --output "artifacts/parsed.jsonl" --extract-images --enable-image-captioning
 
 # 2. Create chunks  
 python pipeline/chunk.py \
@@ -203,10 +219,11 @@ python pipeline/embed.py \
   --output "artifacts/embeddings.jsonl" \
   --provider local --verbose
 
-# 4. Single query (without chat interface)
+# 4. Single query with image support (without chat interface)
 python pipeline/query.py \
-  --question "Your question here" \
+  --question "What is the Ascalon cluster architecture?" \
   --embeddings "artifacts/embeddings.jsonl" \
+  --chunked "artifacts/chunked.jsonl" \
   --topk 10 --timeout 60
 ```
 
@@ -216,17 +233,19 @@ python pipeline/query.py \
 ```
 📁 Documents (PDF, PPTX, MD, CSV, Images)
     ↓
-🔍 Parse (unstructured.io + OCR + PPTX native table extraction)
+🔍 Parse (fast basic engine by default; optional unstructured.io + OCR)
+    ↓
+🖼️  Extract Images (diagrams + OCR + metadata; optional AI captioning)
     ↓
 ✂️  Chunk (heading-aware + token-targeted + overlap; slides atomic + windowed)
     ↓  
-🧠 Embed (multi-vector: summary + full-content)
+🧠 Embed (multi-vector: summary + full-content + image descriptions)
     ↓
 💬 Chat Interface
     ↓
-🔍 Retrieve (dense + sparse + RRF + rerank + MMR + doc-coherence)
+🔍 Retrieve (dense + sparse + RRF + rerank + MMR + doc-coherence + images)
     ↓
-🤖 Generate (Gemini 2.5 Pro + citations)
+🤖 Generate (Gemini 2.5 Pro + citations + relevant image paths)
 ```
 
 ### **Retrieval Process**
@@ -236,11 +255,12 @@ python pipeline/query.py \
 4. **Fusion**: Reciprocal Rank Fusion combines dense and sparse results
 5. **Reranking**: Cross-encoder scores query-document relevance
 6. **Coherent Contexting**: Prefer multiple chunks from the top document to maximize continuity
-7. **Generation**: LLM produces cited answer from selected contexts, preserving tables/lists
+7. **Image Matching**: Identify relevant diagrams based on query content and document context
+8. **Generation**: LLM produces cited answer from selected contexts, preserving tables/lists and including relevant image paths
 
 ## ⚡ **Intelligent Caching System**
 
-TTQuery includes smart caching at every pipeline stage:
+Synapse includes smart caching at every pipeline stage:
 
 ### **Cache Features**
 - **File Modification Tracking**: Only reprocess changed documents
@@ -283,14 +303,42 @@ python pipeline/parse.py --cache-path "custom/cache.pkl"
 ## 📊 **Output Artifacts**
 
 ### **Pipeline Outputs**
-- `artifacts/parsed.jsonl`: Normalized document elements with metadata (includes PPTX tables as CSV)
+- `artifacts/parsed.jsonl`: Normalized document elements with metadata (includes PPTX tables as CSV and image descriptions)
 - `artifacts/chunked.jsonl`: Token-targeted chunks with overlap; slides atomic + windowed
 - `artifacts/embeddings.jsonl`: Multi-vector embeddings with text
+
+### **Image Processing Outputs** ⭐ **NEW**
+- `artifacts/extracted_images/`: Individual image files (PNG format) with descriptive filenames
+- `artifacts/image_metadata.json`: Rich metadata for all extracted images including OCR text, document context, and technical keywords
 
 ### **Session Files**
 - `sessions/`: Conversation history with retrieval metadata (CLI & GUI compatible)
 
+### **Example Query Response with Images**
+```
+🤖 Assistant: The Ascalon cluster architecture consists of:
+- Eight RISC-V CPU Cores
+- Shared Cache system
+- Cluster Internal Network
+...
+
+📚 Sources:
+[1] ascalon_manual.pdf (pages 8, 30, 36)
+
+🖼️  Relevant Images (3):
+  [1] ascalon_manual_p048_img00_846dc90c.png
+  [2] ascalon_manual_p042_img00_4b9150d6.png  
+  [3] ascalon_manual_p006_img00_d93dabb2.png
+```
+
 ## 🛠️ **Troubleshooting**
 
+### **General Issues**
 - If tables appear missing in answers, ensure you re-parsed after the PPTX table update and re-embedded.
 - Set `TOKENIZERS_PARALLELISM=false` to silence HF fork warnings.
+
+### **Image Processing** ⭐ **NEW**
+- **Missing images**: Re-run parsing with `--extract-images` flag to extract diagrams from PDFs/PPTXs
+- **Rate limiting errors**: Disable AI captioning with `--extract-images` (without `--enable-image-captioning`)
+- **No relevant images**: Images are only returned when contextually relevant to your query
+- **Dependencies**: Install `PyMuPDF` and `python-pptx` for image extraction: `pip install PyMuPDF python-pptx`
