@@ -44,12 +44,24 @@ except Exception:
     FLASHRANK_OK = False
 
 CE = None
+CROSS_ENCODER_CLASS = None
+
 try:  # pragma: no cover - optional dependency
     from sentence_transformers import CrossEncoder  # type: ignore
-
-    CE = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+    CROSS_ENCODER_CLASS = CrossEncoder
 except Exception:
-    CE = None
+    CROSS_ENCODER_CLASS = None
+
+def _get_cross_encoder():
+    """Lazy loading of CrossEncoder to avoid HTTP 429 during module import."""
+    global CE
+    if CE is None and CROSS_ENCODER_CLASS is not None:
+        try:
+            CE = CROSS_ENCODER_CLASS("cross-encoder/ms-marco-MiniLM-L-6-v2")
+        except Exception as e:
+            print(f"⚠️  Could not load CrossEncoder model: {e}")
+            CE = False  # Mark as failed to avoid retrying
+    return CE if CE is not False else None
 
 
 def _norm_rows(A: np.ndarray) -> np.ndarray:
@@ -178,15 +190,23 @@ def rerank(query: str, candidate_indices: List[int], items: List[Dict[str, objec
         full_for_rank = (preview + "\n\n" + text) if preview else text
         passages.append({"id": str(i), "text": full_for_rank})
     if FLASHRANK_OK:
-        ranker = Ranker()
-        req = RerankRequest(query=query, passages=passages)
-        ranked = ranker.rerank(req)
-        return [int(getattr(p, "id", p.get("id") if isinstance(p, dict) else str(p))) for p in ranked][:topn]
-    if CE is not None:
+        try:
+            ranker = Ranker()
+            req = RerankRequest(query=query, passages=passages)
+            ranked = ranker.rerank(req)
+            return [int(getattr(p, "id", p.get("id") if isinstance(p, dict) else str(p))) for p in ranked][:topn]
+        except Exception as e:
+            print(f"⚠️  FlashRank failed, falling back to CrossEncoder: {e}")
+            # Fall through to CrossEncoder fallback
+    
+    # Try CrossEncoder as fallback (lazy loaded)
+    ce = _get_cross_encoder()
+    if ce is not None:
         pairs = [(query, p["text"]) for p in passages]
-        scores = CE.predict(pairs)
+        scores = ce.predict(pairs)
         order = np.argsort(scores)[::-1][:topn]
         return [candidate_indices[i] for i in order]
+    
     return candidate_indices[:topn]
 
 
@@ -431,6 +451,17 @@ def extract_relevant_images(question: str, final_indices: List[int], items: List
     """Extract relevant image paths from retrieved context based on the question and context."""
     image_paths = []
     
+    # Load the chunked file which has the correct image metadata
+    try:
+        chunked_items = []
+        chunked_file = "artifacts/chunked_with_images.jsonl"
+        if os.path.isfile(chunked_file):
+            for rec in read_jsonl(chunked_file):
+                chunked_items.append(rec)
+    except Exception as e:
+        print(f"Warning: Could not load chunked file for image extraction: {e}")
+        chunked_items = []
+    
     # First, collect images from the retrieved context directly
     for idx in final_indices:
         item = items[idx]
@@ -467,8 +498,11 @@ def extract_relevant_images(question: str, final_indices: List[int], items: List
             source_path = str(item.get("source_path", ""))
             relevant_pages.add((source_path, page_num))
     
-    # Find images from the same documents and pages
-    for item in items:
+    # Find images from the same documents and pages using chunked data
+    # Use chunked_items if available, otherwise fallback to items
+    search_items = chunked_items if chunked_items else items
+    
+    for item in search_items:
         source_type = str(item.get("source_type", ""))
         if source_type == "image":
             item_doc_id = str(item.get("document_id", ""))
@@ -508,22 +542,29 @@ def extract_relevant_images(question: str, final_indices: List[int], items: List
         "timer": ["timer", "wdt", "watchdog", "peripheral"],
         "architecture": ["architecture", "block", "diagram", "system"],
         "interface": ["interface", "connection", "protocol", "bus"],
-        "ascalon": ["ascalon", "cpu", "risc-v", "vector"]
+        "ascalon": ["ascalon", "cpu", "risc-v", "vector"],
+        "tensix": ["tensix", "neo", "auto", "blackhole", "grayskull", "wormhole"],
+        "neo": ["neo", "tensix", "auto", "configuration", "automotive"]
     }
     
     for keyword_group, related_terms in diagram_keywords.items():
         if any(term in question_lower for term in related_terms):
-            # Find images with matching technical keywords
-            for item in items:
+            # Find images with matching technical keywords using chunked data
+            for item in search_items:
                 source_type = str(item.get("source_type", ""))
                 if source_type == "image":
                     metadata = item.get("metadata", {})
                     technical_keywords = metadata.get("technical_keywords", [])
                     
-                    # Check if image has relevant technical keywords
-                    if any(keyword.lower() in [tk.lower() for tk in technical_keywords] 
-                           for keyword in related_terms):
-                        
+                    # Also check content for technical terms
+                    content = str(item.get("content", "")).lower()
+                    
+                    # Check if image has relevant technical keywords or content
+                    has_keywords = any(keyword.lower() in [tk.lower() for tk in technical_keywords] 
+                                     for keyword in related_terms)
+                    has_content_match = any(keyword.lower() in content for keyword in related_terms)
+                    
+                    if has_keywords or has_content_match:
                         if metadata.get("content_format") == "extracted_image":
                             image_path = str(metadata.get("image_path", ""))
                         else:

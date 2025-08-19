@@ -37,10 +37,54 @@ from pipeline.query import (
 )
 
 
-class ChatSession:
-    """Manages conversation history and context."""
+def load_default_config():
+    """Load default configuration from file."""
+    default_config_path = Path("default_config.json")
+    default_config = {
+        "system_prompt": (
+            "You are an engineering assistant. Keep your responses relevant and based on the context. "
+            "Provide as much detail as possible but keep it concise. When asked for tables - reconstruct tables based on retrieved context. "
+            "IMPORTANT: Never include any citation numbers, brackets like [1], [2], or references to 'Context Document X' in your response. "
+            "Write naturally without any citation markers - the system will add citations separately. "
+            "When interpreting OCR text from technical diagrams, be careful about common OCR errors: '2x' may appear as part of adjacent text, 'I2C' may appear as '12C', 'x4' formatting may be inconsistent. "
+            "Always double-check technical specifications and component counts against the visual context when available."
+        ),
+        "topk": 10,
+        "per_doc": 8,
+        "lambda_mmr": 0.8,
+        "timeout": 60,
+        "verbose": False,
+        "max_images": 2,
+        "images_enabled": True,
+    }
     
-    def __init__(self, session_file: Optional[str] = None, auto_continue: bool = True):
+    try:
+        if default_config_path.exists():
+            with open(default_config_path, 'r') as f:
+                saved_config = json.load(f)
+                default_config.update(saved_config)
+    except Exception as e:
+        print(f"⚠️  Could not load default config: {e}")
+    
+    return default_config
+
+
+def save_default_config(config):
+    """Save default configuration to file."""
+    default_config_path = Path("default_config.json")
+    try:
+        with open(default_config_path, 'w') as f:
+            json.dump(config, f, indent=2)
+        return True
+    except Exception as e:
+        print(f"⚠️  Could not save default config: {e}")
+        return False
+
+
+class ChatSession:
+    """Manages conversation history, context, and configuration."""
+    
+    def __init__(self, session_file: Optional[str] = None, auto_continue: bool = True, default_config: Optional[Dict] = None):
         # Auto-generate or find existing session file if not provided
         if session_file is None:
             session_dir = Path("sessions")
@@ -63,6 +107,12 @@ class ChatSession:
         self.session_file = session_file
         self.history: List[Dict] = []
         self.created_at = datetime.now().isoformat()
+        
+        # Initialize config - use provided default or load from file
+        if default_config is None:
+            default_config = load_default_config()
+        self.config = default_config.copy()
+        
         self.load_session()
     
     def _find_most_recent_session(self, session_dir: Path) -> Optional[Path]:
@@ -123,7 +173,8 @@ class ChatSession:
         session_data = {
             "created_at": self.created_at,
             "last_updated": datetime.now().isoformat(),
-            "history": self.history
+            "history": self.history,
+            "config": self.config
         }
         
         try:
@@ -144,7 +195,13 @@ class ChatSession:
             self.created_at = session_data.get("created_at", self.created_at)
             self.history = session_data.get("history", [])
             
-            print(f"📚 Loaded session with {len(self.history)} previous exchanges")
+            # Load session-specific config if available, otherwise keep current config
+            if "config" in session_data:
+                self.config.update(session_data["config"])
+                print(f"📚 Loaded session with {len(self.history)} previous exchanges and custom config")
+            else:
+                print(f"📚 Loaded session with {len(self.history)} previous exchanges (using default config)")
+                
         except Exception as e:
             print(f"⚠️  Could not load session: {e}")
     
@@ -152,6 +209,15 @@ class ChatSession:
         """Clear conversation history."""
         self.history = []
         self.save_session()
+    
+    def update_config(self, new_config: Dict):
+        """Update session configuration and save."""
+        self.config.update(new_config)
+        self.save_session()
+    
+    def get_config(self) -> Dict:
+        """Get current session configuration."""
+        return self.config.copy()
     
     def export_session(self, filepath: str):
         """Export session to a file."""
@@ -161,7 +227,8 @@ class ChatSession:
                     "created_at": self.created_at,
                     "exported_at": datetime.now().isoformat(),
                     "total_exchanges": len(self.history),
-                    "history": self.history
+                    "history": self.history,
+                    "config": self.config
                 }, f, indent=2)
             print(f"📝 Session exported to {filepath}")
         except Exception as e:
@@ -294,6 +361,8 @@ def enhanced_answer(
     timeout: int = 60,
     system_override: Optional[str] = None,
     chunked_path: Optional[str] = None,
+    images_enabled: bool = True,
+    max_images: int = 2,
 ) -> Tuple[str, str, Dict, List[str]]:
     """Enhanced answer function with verbose output and conversation context."""
     
@@ -346,10 +415,12 @@ def enhanced_answer(
     # Extract relevant images first so we can include descriptions in the LLM prompt
     image_paths = []
     image_descriptions = []
-    if chunked_path:
+    if chunked_path and images_enabled and max_images > 0:
         try:
             from pipeline.query import extract_relevant_images
-            image_paths = extract_relevant_images(question, final_indices, items)
+            # Extract images with the specified limit
+            all_image_paths = extract_relevant_images(question, final_indices, items)
+            image_paths = all_image_paths[:max_images]  # Limit to max_images
             
             # Get image descriptions for LLM context
             for img_path in image_paths:
@@ -555,14 +626,18 @@ def list_sessions():
     print("💡 Use --session <filename> to load a specific session")
 
 
-def start_new_session() -> ChatSession:
+def start_new_session(default_config: Optional[Dict] = None) -> ChatSession:
     """Start a new session, forcing creation of a new file."""
     session_dir = Path("sessions")
     session_dir.mkdir(exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     session_file = str(session_dir / f"chat_session_{timestamp}.json")
     print(f"🆕 Started new session: {Path(session_file).name}")
-    return ChatSession(session_file, auto_continue=False)
+    
+    if default_config is None:
+        default_config = load_default_config()
+    
+    return ChatSession(session_file, auto_continue=False, default_config=default_config)
 
 
 def run_gui(embeddings_path: str, default_timeout: int = 60) -> int:
@@ -608,52 +683,79 @@ def run_gui(embeddings_path: str, default_timeout: int = 60) -> int:
         print(f"⚠️  Could not check for chunked file: {e}")
         chunked_path = None
 
-    # Persistent session using CLI's ChatSession
-    session = ChatSession(auto_continue=True)
+    # Load default configuration
+    default_config = load_default_config()
+    default_config["timeout"] = default_timeout  # Override timeout with CLI argument
+    
+    # Persistent session using CLI's ChatSession with default config
+    session = ChatSession(auto_continue=True, default_config=default_config)
     session_history: List[Dict] = []  # mirrored in-memory for quick UI rendering
-
-    # Admin-configurable RAG params (mutable via UI)
-    rag_cfg = {
-        "system_prompt": (
-            "You are an engineering assistant. Keep your responses relevant and based on the context. "
-            "Provide as much detail as possible but keep it concise. When asked for tables - reconstruct tables based on retrieved context. "
-            "IMPORTANT: Never include any citation numbers, brackets like [1], [2], or references to 'Context Document X' in your response. "
-            "Write naturally without any citation markers - the system will add citations separately. "
-            "When interpreting OCR text from technical diagrams, be careful about common OCR errors: '2x' may appear as part of adjacent text, 'I2C' may appear as '12C', 'x4' formatting may be inconsistent. "
-            "Always double-check technical specifications and component counts against the visual context when available."
-        ),
-        "topk": 10,
-        "per_doc": 8,
-        "lambda_mmr": 0.8,
-        "timeout": default_timeout,
-        "verbose": False,
-    }
 
     app = Flask(__name__)
 
     @app.get("/")
     def index():
+        # Get current session config for template
+        current_config = session.get_config()
         return render_template(
             'index.html',
-            system_prompt=rag_cfg["system_prompt"],
-            topk=rag_cfg["topk"],
-            per_doc=rag_cfg["per_doc"],
-            lambda_mmr=rag_cfg["lambda_mmr"],
-            timeout=rag_cfg["timeout"],
+            system_prompt=current_config["system_prompt"],
+            topk=current_config["topk"],
+            per_doc=current_config["per_doc"],
+            lambda_mmr=current_config["lambda_mmr"],
+            timeout=current_config["timeout"],
             embeddings_path=os.path.abspath(embeddings_path),
         )
 
     @app.get("/api/config")
     def get_config():
-        return jsonify({**rag_cfg})
+        return jsonify({**session.get_config()})
+    
+    @app.get("/api/config/default")
+    def get_default_config():
+        """Get the default configuration."""
+        return jsonify(load_default_config())
+
+
 
     @app.post("/api/config")
     def set_config():
+        """Update current session configuration."""
         data = request.get_json(force=True)
-        for k in ["system_prompt","topk","per_doc","lambda_mmr","timeout","verbose"]:
+        valid_keys = ["system_prompt","topk","per_doc","lambda_mmr","timeout","verbose","max_images","images_enabled"]
+        config_update = {}
+        
+        for k in valid_keys:
             if k in data and data[k] is not None:
-                rag_cfg[k] = data[k]
+                config_update[k] = data[k]
+        
+        if config_update:
+            session.update_config(config_update)
+        
         return jsonify({"ok": True})
+    
+    @app.post("/api/config/save-as-default")
+    def save_config_as_default():
+        """Save current session config as the new default."""
+        try:
+            current_config = session.get_config()
+            if save_default_config(current_config):
+                return jsonify({"ok": True, "message": "Configuration saved as default"})
+            else:
+                return jsonify({"ok": False, "error": "Failed to save default configuration"}), 500
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 500
+    
+    @app.post("/api/config/reset-to-default")
+    def reset_to_default():
+        """Reset current session config to default values."""
+        try:
+            default_config = load_default_config()
+            default_config["timeout"] = default_timeout  # Preserve CLI timeout setting
+            session.update_config(default_config)
+            return jsonify({"ok": True, "message": "Configuration reset to default"})
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 500
 
     @app.get("/api/history")
     def get_history():
@@ -697,7 +799,10 @@ def run_gui(embeddings_path: str, default_timeout: int = 60) -> int:
     @app.post("/api/session/new")
     def new_session_api():
         nonlocal session, session_history
-        session = start_new_session()
+        # Create new session with current default config
+        current_default = load_default_config()
+        current_default["timeout"] = default_timeout
+        session = start_new_session(current_default)
         session_history = []
         return jsonify({"ok": True, "session_file": session.session_file})
 
@@ -712,7 +817,11 @@ def run_gui(embeddings_path: str, default_timeout: int = 60) -> int:
         target = Path("sessions") / fname
         if not target.exists():
             return jsonify({"ok": False, "error": "session file not found"}), 404
-        session = ChatSession(str(target), auto_continue=False)
+        
+        # Load session with default config as fallback
+        default_config = load_default_config()
+        default_config["timeout"] = default_timeout
+        session = ChatSession(str(target), auto_continue=False, default_config=default_config)
         session_history = []
         return jsonify({"ok": True, "session_file": session.session_file})
 
@@ -723,22 +832,32 @@ def run_gui(embeddings_path: str, default_timeout: int = 60) -> int:
         if not question:
             return jsonify({"answer":"", "sources":""})
 
+        # Get image settings from request (with fallback to config defaults)
+        images_enabled = data.get("images_enabled", True)
+        max_images = data.get("max_images", 2)
+
         # Conversation context for parity with CLI
         conv_ctx = session.get_context(last_n=3)
         try:
+            # Get current session config
+            current_config = session.get_config()
+            
             answer_text, sources_block, retrieval_info, image_paths = enhanced_answer(
                 question=question,
                 embeddings_path=embeddings_path,
                 conversation_context=conv_ctx,
-                verbose=bool(rag_cfg.get("verbose", False)),
-                per_doc=int(rag_cfg.get("per_doc", 8)),
-                final_k=int(rag_cfg.get("topk", 10)),
-                lambda_mmr=float(rag_cfg.get("lambda_mmr", 0.8)),
-                timeout=int(rag_cfg.get("timeout", default_timeout)),
-                system_override=rag_cfg.get("system_prompt"),
+                verbose=bool(current_config.get("verbose", False)),
+                per_doc=int(current_config.get("per_doc", 8)),
+                final_k=int(current_config.get("topk", 10)),
+                lambda_mmr=float(current_config.get("lambda_mmr", 0.8)),
+                timeout=int(current_config.get("timeout", default_timeout)),
+                system_override=current_config.get("system_prompt"),
                 chunked_path=chunked_path,
+                images_enabled=images_enabled,
+                max_images=max_images,
             )
         except Exception as e:
+            print(f"❌ Error in /api/ask: {e}")
             return jsonify({"ok": False, "error": str(e)}), 500
 
         # Add to persistent session
@@ -772,7 +891,7 @@ def run_gui(embeddings_path: str, default_timeout: int = 60) -> int:
             "sources_html": s_html,
             "images": relative_image_paths
         }
-        if rag_cfg.get("verbose"):
+        if session.get_config().get("verbose"):
             resp["retrieval_info"] = retrieval_info
         return jsonify(resp)
 
@@ -909,7 +1028,8 @@ def main() -> int:
                 context = session.get_context(last_n=3)
                 answer, sources, retrieval_info, image_paths = enhanced_answer(
                     question=question, embeddings_path=embeddings_path, conversation_context=context,
-                    verbose=verbose_mode, timeout=args.timeout, chunked_path=None)
+                    verbose=verbose_mode, timeout=args.timeout, chunked_path=None,
+                    images_enabled=True, max_images=2)
                 total_time = time.time() - start_time
                 print(f"\n🤖 Assistant ({total_time:.1f}s):\n{answer.strip()}\n\n📚 Sources:\n{sources}")
                 

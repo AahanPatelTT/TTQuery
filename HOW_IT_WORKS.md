@@ -17,6 +17,8 @@ Synapse provides two primary interfaces:
 - **Verbose retrieval**: Shows detailed ranking and retrieval steps
 - **Session management**: Save/load conversation history
 - **Interactive commands**: Rich command system for user control
+- **Session-specific configs**: Each session stores its own configuration
+- **Default config management**: Save and load default settings for new sessions
 
 ### Pipeline at a glance
 1. Parse (Data → parsed.jsonl) **[Cached]**
@@ -261,6 +263,11 @@ python pipeline/embed.py --cache-path "custom/embed_cache.pkl" --input "artifact
 - **Resume capability**: Load previous sessions and continue conversations
 - **Export functionality**: Save conversations for analysis or sharing
 - **Metadata tracking**: Timestamps, retrieval statistics, and performance metrics
+
+**Default Config Management**
+- **`default_config.json`**: Stores the default configuration template
+- **Save as Default**: Overwrites `default_config.json` with the current session's settings
+- **Reset to Default**: Reverts the current session's config to the values in `default_config.json`
 
 **Interactive Commands**
 ```

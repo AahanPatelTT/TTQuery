@@ -50,13 +50,68 @@ class SynapseApp {
     document.getElementById('refresh-sessions-btn').addEventListener('click', () => this.loadSessions());
     document.getElementById('new-session-btn').addEventListener('click', () => this.newSession());
     document.getElementById('load-session-btn').addEventListener('click', () => this.loadSelectedSession());
+    document.getElementById('save-as-default-btn').addEventListener('click', () => this.saveAsDefault());
+    document.getElementById('reset-to-default-btn').addEventListener('click', () => this.resetToDefault());
+
+    // Image controls synchronization
+    this.setupImageControls();
 
     // Config auto-save (debounced)
     this.setupConfigAutoSave();
   }
 
+  setupImageControls() {
+    const quickToggle = document.getElementById('quick-images-toggle');
+    const sidebarToggle = document.getElementById('images-enabled');
+    const maxImagesInput = document.getElementById('max-images');
+    const imageCountDisplay = document.getElementById('image-count-display');
+
+    // Sync the two image toggle checkboxes
+    const syncToggles = (source, target) => {
+      if (source && target) {
+        source.addEventListener('change', () => {
+          target.checked = source.checked;
+          this.updateImageCountDisplay();
+          this.saveConfig(false); // Auto-save
+        });
+      }
+    };
+
+    syncToggles(quickToggle, sidebarToggle);
+    syncToggles(sidebarToggle, quickToggle);
+
+    // Update display when max images changes
+    if (maxImagesInput) {
+      maxImagesInput.addEventListener('input', () => {
+        this.updateImageCountDisplay();
+      });
+    }
+
+    // Initial display update
+    this.updateImageCountDisplay();
+  }
+
+  updateImageCountDisplay() {
+    const imageCountDisplay = document.getElementById('image-count-display');
+    const maxImagesInput = document.getElementById('max-images');
+    const imagesEnabled = document.getElementById('images-enabled');
+    
+    if (imageCountDisplay && maxImagesInput) {
+      const maxImages = parseInt(maxImagesInput.value) || 0;
+      const enabled = imagesEnabled?.checked !== false;
+      
+      if (!enabled || maxImages === 0) {
+        imageCountDisplay.textContent = 'Disabled';
+        imageCountDisplay.style.color = '#999';
+      } else {
+        imageCountDisplay.textContent = `Max: ${maxImages}`;
+        imageCountDisplay.style.color = '#666';
+      }
+    }
+  }
+
   setupConfigAutoSave() {
-    const configInputs = ['system-prompt', 'topk', 'per-doc', 'lambda-mmr', 'timeout'];
+    const configInputs = ['system-prompt', 'topk', 'per-doc', 'lambda-mmr', 'timeout', 'max-images'];
     let saveTimeout;
 
     configInputs.forEach(id => {
@@ -69,10 +124,19 @@ class SynapseApp {
       }
     });
 
-    // Verbose checkbox
+    // Verbose and images checkboxes
     const verboseCheckbox = document.getElementById('verbose');
+    const imagesCheckbox = document.getElementById('images-enabled');
+    
     if (verboseCheckbox) {
       verboseCheckbox.addEventListener('change', () => this.saveConfig(false));
+    }
+    
+    if (imagesCheckbox) {
+      imagesCheckbox.addEventListener('change', () => {
+        this.updateImageCountDisplay();
+        this.saveConfig(false);
+      });
     }
   }
 
@@ -173,8 +237,18 @@ class SynapseApp {
       const response = await fetch('/api/config');
       this.config = await response.json();
       this.updateConfigUI();
+      this.updateConfigStatus();
     } catch (error) {
       this.showError('Failed to load configuration', error);
+    }
+  }
+
+  updateConfigStatus() {
+    const statusElement = document.getElementById('config-status');
+    if (statusElement) {
+      statusElement.textContent = 'Config linked to current session';
+      statusElement.style.background = 'rgba(102, 126, 234, 0.1)';
+      statusElement.style.color = '#495057';
     }
   }
 
@@ -185,6 +259,14 @@ class SynapseApp {
     document.getElementById('lambda-mmr').value = this.config.lambda_mmr || 0.8;
     document.getElementById('timeout').value = this.config.timeout || 60;
     document.getElementById('verbose').checked = !!this.config.verbose;
+    
+    // Image settings
+    document.getElementById('max-images').value = this.config.max_images || 2;
+    document.getElementById('images-enabled').checked = this.config.images_enabled !== false;
+    document.getElementById('quick-images-toggle').checked = this.config.images_enabled !== false;
+    
+    // Update image count display
+    this.updateImageCountDisplay();
   }
 
   async saveConfig(showNotification = true) {
@@ -195,7 +277,9 @@ class SynapseApp {
         per_doc: parseInt(document.getElementById('per-doc').value, 10),
         lambda_mmr: parseFloat(document.getElementById('lambda-mmr').value),
         timeout: parseInt(document.getElementById('timeout').value, 10),
-        verbose: document.getElementById('verbose').checked
+        verbose: document.getElementById('verbose').checked,
+        max_images: parseInt(document.getElementById('max-images').value, 10),
+        images_enabled: document.getElementById('images-enabled').checked
       };
 
       const response = await fetch('/api/config', {
@@ -207,12 +291,68 @@ class SynapseApp {
       if (!response.ok) throw new Error('Failed to save config');
       
       this.config = { ...this.config, ...config };
+      this.updateConfigStatus();
       
       if (showNotification) {
-        this.showSuccess('Configuration saved');
+        this.showSuccess('Session configuration saved');
       }
     } catch (error) {
       this.showError('Failed to save configuration', error);
+    }
+  }
+
+  async saveAsDefault() {
+    if (!confirm('Save current configuration as default for new sessions?')) return;
+
+    try {
+      const response = await fetch('/api/config/save-as-default', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      const result = await response.json();
+      
+      if (!response.ok || !result.ok) {
+        throw new Error(result.error || 'Failed to save as default');
+      }
+      
+      this.showSuccess('⭐ Configuration saved as default!');
+      
+      // Update config status to show it's now the default
+      const statusElement = document.getElementById('config-status');
+      if (statusElement) {
+        statusElement.textContent = 'Current config saved as default ⭐';
+        statusElement.style.background = 'rgba(40, 167, 69, 0.1)';
+        statusElement.style.color = '#155724';
+      }
+      
+    } catch (error) {
+      this.showError('Failed to save as default', error);
+    }
+  }
+
+  async resetToDefault() {
+    if (!confirm('Reset current session configuration to default values?')) return;
+
+    try {
+      const response = await fetch('/api/config/reset-to-default', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      const result = await response.json();
+      
+      if (!response.ok || !result.ok) {
+        throw new Error(result.error || 'Failed to reset to default');
+      }
+      
+      // Reload config to reflect changes
+      await this.loadConfig();
+      
+      this.showSuccess('🔄 Configuration reset to default');
+      
+    } catch (error) {
+      this.showError('Failed to reset to default', error);
     }
   }
 
@@ -230,6 +370,9 @@ class SynapseApp {
 
       this.currentSession = data.session_file;
       this.updateSessionInfo();
+      
+      // Load session-specific config when switching sessions
+      await this.loadConfig();
     } catch (error) {
       this.showError('Failed to load chat history', error);
     }
@@ -279,10 +422,18 @@ class SynapseApp {
     input.style.height = 'auto';
 
     try {
+      // Get current image settings
+      const imagesEnabled = document.getElementById('quick-images-toggle').checked;
+      const maxImages = parseInt(document.getElementById('max-images').value, 10) || 2;
+      
       const response = await fetch('/api/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question })
+        body: JSON.stringify({ 
+          question,
+          images_enabled: imagesEnabled,
+          max_images: maxImages
+        })
       });
 
       if (!response.ok) {
@@ -453,7 +604,7 @@ class SynapseApp {
       
       await this.loadSessions();
       await this.loadHistory();
-      this.showSuccess('New session created');
+      this.showSuccess('New session created with default config');
     } catch (error) {
       this.showError('Failed to create new session', error);
     }
@@ -477,9 +628,9 @@ class SynapseApp {
 
       if (!response.ok) throw new Error('Failed to load session');
       
-      await this.loadHistory();
+      await this.loadHistory(); // This will also load the session-specific config
       await this.loadSessions();
-      this.showSuccess(`Session "${filename}" loaded`);
+      this.showSuccess(`Session "${filename}" loaded with its config`);
     } catch (error) {
       this.showError('Failed to load session', error);
     }

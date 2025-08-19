@@ -14,6 +14,8 @@ Synapse is a complete RAG (Retrieval-Augmented Generation) system that transform
 - **Session Export**: Save and resume conversations
 - **Real-time Configuration**: Adjust RAG parameters on-the-fly (GUI)
 - **Markdown Rendering**: Beautiful formatting for code, tables, and text (GUI)
+- **Session-Specific Configs**: Each conversation maintains its own RAG configuration
+- **Default Config Management**: Save and load default configurations for new sessions
 
 ### **🔍 Advanced Retrieval**
 - **Hybrid Search**: Dense (FAISS) + Sparse (BM25) retrieval with RRF fusion
@@ -107,7 +109,7 @@ python chat.py --test_gui
 # Then open http://127.0.0.1:7860 in your browser
 ```
 
-📖 **See [GUI.md](GUI.md) for complete web interface documentation**
+📖 **See [CONFIG_SESSION_FEATURES.md](CONFIG_SESSION_FEATURES.md) for complete web interface documentation**
 
 ## 💬 **Chat Interface Guide**
 
@@ -297,8 +299,10 @@ python pipeline/parse.py --cache-path "custom/cache.pkl"
 | **Real-time Parameter Tuning** | ❌ | ✅ |
 | **Visual Feedback** | Text-based | ✅ Modern UI |
 | **Export Options** | JSON | ✅ JSON + UI |
+| **Session Configs** | ❌ | ✅ |
+| **Default Configs** | ❌ | ✅ |
 
-📖 **[Detailed GUI Documentation →](GUI.md)**
+📖 **[Detailed GUI Documentation →](CONFIG_SESSION_FEATURES.md)**
 
 ## 📊 **Output Artifacts**
 
@@ -313,6 +317,7 @@ python pipeline/parse.py --cache-path "custom/cache.pkl"
 
 ### **Session Files**
 - `sessions/`: Conversation history with retrieval metadata (CLI & GUI compatible)
+- `default_config.json`: Default configuration for new sessions
 
 ### **Example Query Response with Images**
 ```

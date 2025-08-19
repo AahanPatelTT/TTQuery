@@ -1,0 +1,50 @@
+Issue Type,Key,Summary,Assignee,Due date,Status,Labels,Tenstorrent IP,Plan Date,Trend Date,Actual Date,Minus30day
+IP Engineering Milestone,IPFEAT-491,SMT EVB ready,,6/1/2026,Draft,Atlantis,Ascalon,6/1/2026,6/15/2026,,5/2/2026 0:00:00
+IP Engineering Milestone,IPFEAT-490,ES sample,,5/1/2026,Draft,Atlantis,Ascalon,5/1/2026,5/30/2026,,4/1/2026 0:00:00
+IP Engineering Milestone,IPFEAT-489,Fab out,,4/1/2026,Draft,Atlantis,Ascalon,4/1/2026,5/15/2026,,3/2/2026 0:00:00
+IP Engineering Milestone,IPFEAT-488,Package substrate complete,,3/1/2026,Draft,Atlantis,Ascalon,3/1/2026,4/1/2026,,1/30/2026 0:00:00
+IP Engineering Milestone,IPFEAT-487,"PV done, Tapeout",,2/1/2026,Draft,Atlantis,Ascalon,2/1/2026,2/28/2026,,1/2/2026 0:00:00
+IP Engineering Milestone,IPFEAT-486,Mask Cost (2 month before TO),,1/1/2026,Draft,Atlantis,Ascalon,1/1/2026,12/31/2025,,12/2/2025 0:00:00
+IP Engineering Milestone,IPFEAT-485,SoC freeze,,12/1/2025,Draft,Atlantis,Ascalon,12/1/2025,12/15/2025,,11/1/2025 0:00:00
+IP Engineering Milestone,IPFEAT-484,Emulation/Prototyping Bitstream ready,,11/1/2025,Draft,Atlantis,Ascalon,11/1/2025,10/30/2025,,10/2/2025 0:00:00
+IP Engineering Milestone,IPFEAT-483,Floorplan freeze,,10/1/2025,Draft,Atlantis,Ascalon,10/1/2025,10/30/2025,,9/1/2025 0:00:00
+IP Engineering Milestone,IPFEAT-482,SoC 85p,,9/1/2025,Draft,Atlantis,Ascalon,9/1/2025,9/30/2025,,8/2/2025 0:00:00
+IP Engineering Milestone,IPFEAT-481,SoC 05p,,8/1/2025,Draft,Atlantis,Ascalon,8/1/2025,8/30/2025,,7/2/2025 0:00:00
+IP Engineering Milestone,IPFEAT-480,CP2,,7/1/2025,Draft,Atlantis,Ascalon,7/1/2025,7/29/2025,,6/1/2025 0:00:00
+IP Engineering Milestone,IPFEAT-479,Kickoff T0,,6/1/2025,Approved,Atlantis,Ascalon,6/1/2025,6/1/2025,6/16/2025,5/2/2025 0:00:00
+IP Engineering Milestone,IPFEAT-464,P&C - ATL,,8/19/2025,Draft,Atlantis,Ascalon,8/19/2025,8/19/2025,,7/20/2025 0:00:00
+IP Engineering Milestone,IPFEAT-437,P&C BBLN,,10/14/2025,Draft,Babylon,Ascalon,10/14/2025,10/14/2025,,9/14/2025 0:00:00
+IP Engineering Milestone,IPFEAT-436,CA BBLN,,9/23/2025,Draft,Babylon,Ascalon,9/23/2025,9/23/2025,,8/24/2025 0:00:00
+IP Engineering Milestone,IPFEAT-403,PCA BBLN,,9/9/2025,Draft,Babylon,Ascalon,9/9/2025,9/9/2025,,8/10/2025 0:00:00
+IP Engineering Milestone,IPFEAT-398,GA ASC-X-8c12m,,1/30/2026,Draft,asc-x-8c12m,Ascalon,1/30/2026,1/30/2026,,12/31/2025 0:00:00
+IP Engineering Milestone,IPFEAT-397,LA ASC-X-8c12m,,6/30/2025,Draft,asc-x-8c12m,Ascalon,6/30/2025,9/16/2025,,5/31/2025 0:00:00
+IP Engineering Milestone,IPFEAT-252,ASC D8 Beta r0.5(g),Ross McNulty,4/30/2025,Approved,asc-x-8c12m,Ascalon,4/30/2025,4/30/2025,5/2/2025,3/31/2025 0:00:00
+IP Engineering Milestone,IPFEAT-194,EA ASC-X-8c12m,,8/31/2025,Draft,asc-x-8c12m,Ascalon,8/31/2025,10/15/2025,,8/1/2025 0:00:00
+IP Engineering Milestone,IPFEAT-181,ASC D8 - POR Reset - PDRF March 4th 2025,Rae Parnmukh,3/4/2025,Approved,asc-x-8c12m,Ascalon,3/4/2025,3/4/2025,,2/2/2025 0:00:00
+IP Engineering Milestone,IPFEAT-439,PCA CAL,,9/9/2025,Draft,Callandor,Ascalon Auto,9/9/2025,9/9/2025,,8/10/2025 0:00:00
+IP Engineering Milestone,IPFEAT-314,ALX - P&C,,9/16/2025,Draft,alx-x-4c4m,Ascalon Auto,9/16/2025,9/16/2025,,8/17/2025 0:00:00
+IP Engineering Milestone,IPFEAT-313,CA - ALX-X-4c4m,,8/19/2025,Draft,alx-x-4c4m,Ascalon Auto,8/19/2025,8/19/2025,,7/20/2025 0:00:00
+IP Engineering Milestone,IPFEAT-312,PCA ALX-X-4c4m,,8/12/2025,Committed,alx-x-4c4m,Ascalon Auto,8/12/2025,8/12/2025,,7/13/2025 0:00:00
+IP Engineering Milestone,IPFEAT-294,GA ALX-X-4c4m,,7/30/2026,Draft,alx-x-4c4m,Ascalon Auto,7/30/2026,7/30/2026,,6/30/2026 0:00:00
+IP Engineering Milestone,IPFEAT-293,EA ALX-X-4c4m,,3/30/2026,Draft,alx-x-4c4m,Ascalon Auto,3/30/2026,3/30/2026,,2/28/2026 0:00:00
+IP Engineering Milestone,IPFEAT-292,LA ALX-X-4c4m,,1/30/2026,Draft,alx-x-4c4m,Ascalon Auto,1/30/2026,1/30/2026,,12/31/2025 0:00:00
+IP Engineering Milestone,IPFEAT-291,Beta ALX-X-4c4m,,10/30/2025,Draft,alx-x-4c4m,Ascalon Auto,10/30/2025,10/30/2025,,9/30/2025 0:00:00
+IP Engineering Milestone,IPFEAT-435,CA Neo-A,Rae Parnmukh,8/26/2025,Draft,Neo-A,Tensix NEO Auto,8/26/2025,8/26/2025,,7/27/2025 0:00:00
+IP Engineering Milestone,IPFEAT-434,PCA Neo-A,,8/19/2025,Draft,Neo-A,Tensix NEO Auto,8/19/2025,8/19/2025,,7/20/2025 0:00:00
+IP Engineering Milestone,IPFEAT-406,Neo-A Trinity - v0.5,Andy Jolly,6/15/2025,Approved,Neo-Trinity,Tensix NEO Auto,6/15/2025,6/15/2025,,5/16/2025 0:00:00
+IP Engineering Milestone,IPFEAT-405,Neo-A Trinity - v0.6,Andy Jolly,7/31/2025,Committed,Neo-Trinity,Tensix NEO Auto,7/31/2025,7/31/2025,,7/1/2025 0:00:00
+IP Engineering Milestone,IPFEAT-404,Neo-A Trinity - v0.7,Andy Jolly,8/29/2025,Draft,Neo-Trinity,Tensix NEO Auto,8/29/2025,8/29/2025,,7/30/2025 0:00:00
+IP Engineering Milestone,IPFEAT-188,Neo-A Trinity ga1.0.0,Andy Jolly,10/31/2025,Draft,Neo-Trinity,Tensix NEO Auto,10/31/2025,10/31/2025,,10/1/2025 0:00:00
+IP Engineering Milestone,IPFEAT-400,EA IOMMU,,9/30/2025,Draft,ajanta-iommu,IOMMU,9/30/2025,9/30/2025,,8/31/2025 0:00:00
+IP Engineering Milestone,IPFEAT-399,Beta IOMMU,,5/30/2025,Approved,ajanta-iommu,IOMMU,5/30/2025,5/30/2025,,4/30/2025 0:00:00
+IP Engineering Milestone,IPFEAT-402,EA APLIC,,9/30/2025,Draft,ajanta-aplic,APLIC,9/30/2025,9/30/2025,,8/31/2025 0:00:00
+IP Engineering Milestone,IPFEAT-401,Alpha APLIC,,5/9/2025,Approved,ajanta-aplic,APLIC,5/9/2025,5/9/2025,,4/9/2025 0:00:00
+IP Engineering Milestone,IPFEAT-476,REL Juniper,,10/23/2026,Draft,juniper,Embedded,10/23/2026,10/23/2026,,9/23/2026 0:00:00
+IP Engineering Milestone,IPFEAT-475,EA Juniper,,4/30/2026,Draft,juniper,Embedded,4/30/2026,4/30/2026,,3/31/2026 0:00:00
+IP Engineering Milestone,IPFEAT-474,LA Juniper,,1/30/2026,Draft,juniper,Embedded,1/30/2026,1/30/2026,,12/31/2025 0:00:00
+IP Engineering Milestone,IPFEAT-472,REL Cypress-P,,10/30/2026,Draft,cypress-p,Embedded,10/30/2026,10/30/2026,,9/30/2026 0:00:00
+IP Engineering Milestone,IPFEAT-471,EA Cypress-P,,6/30/2026,Draft,cypress-p,Embedded,6/30/2026,6/30/2026,,5/31/2026 0:00:00
+IP Engineering Milestone,IPFEAT-470,LA Cypress-P,,1/30/2026,Draft,cypress-p,Embedded,1/30/2026,1/30/2026,,12/31/2025 0:00:00
+IP Engineering Milestone,IPFEAT-468,REL Cypress-M,,12/31/2025,Draft,cypress-m,Embedded,12/31/2025,12/31/2025,,12/1/2025 0:00:00
+IP Engineering Milestone,IPFEAT-467,EA Cypress-M,,10/1/2025,Draft,cypress-m,Embedded,10/1/2025,10/1/2025,,9/1/2025 0:00:00
+IP Engineering Milestone,IPFEAT-466,LA Cypress-M,,3/31/2025,Draft,cypress-m,Embedded,3/31/2025,3/31/2025,,3/1/2025 0:00:00
