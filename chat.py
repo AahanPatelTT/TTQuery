@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TTQuery Interactive Chat Interface
+Synapse Interactive Chat Interface
 
 A user-friendly chat CLI with conversation memory, context-aware responses,
 and detailed retrieval insights. Provides an interactive experience for
@@ -15,7 +15,7 @@ Features:
 - Graceful error handling
 
 Usage:
-    python chat.py [--embeddings artifacts/embeddings.jsonl] [--verbose] [--session session.json]
+    python chat.py [--embeddings artifacts/embedded_with_images.npz] [--verbose] [--session session.json]
     python chat.py --test_gui  # Launch local web app GUI
 """
 
@@ -261,6 +261,25 @@ class VerboseRetrieval:
             print()
 
 
+def add_automatic_citations(text: str, final_indices: List[int], items: List[Dict]) -> str:
+    """Add automatic citations to text based on content relevance."""
+    import re
+    
+    # Simple heuristic: add citations at the end of sentences that contain specific keywords
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    result_sentences = []
+    
+    for sentence in sentences:
+        if sentence.strip():
+            # For now, add citation [1] to the first significant sentence
+            # This is a simplified approach - could be made more sophisticated
+            if len(result_sentences) == 0 and len(sentence) > 20:
+                sentence = sentence.strip() + " [1]"
+            result_sentences.append(sentence)
+    
+    return ' '.join(result_sentences)
+
+
 def enhanced_answer(
     question: str,
     embeddings_path: str,
@@ -274,7 +293,8 @@ def enhanced_answer(
     lambda_mmr: float = 0.7,
     timeout: int = 60,
     system_override: Optional[str] = None,
-) -> Tuple[str, str, Dict]:
+    chunked_path: Optional[str] = None,
+) -> Tuple[str, str, Dict, List[str]]:
     """Enhanced answer function with verbose output and conversation context."""
     
     # Load corpus and build indices
@@ -323,20 +343,74 @@ def enhanced_answer(
     if verbose:
         VerboseRetrieval.print_final_context(final_indices, items)
 
+    # Extract relevant images first so we can include descriptions in the LLM prompt
+    image_paths = []
+    image_descriptions = []
+    if chunked_path:
+        try:
+            from pipeline.query import extract_relevant_images
+            image_paths = extract_relevant_images(question, final_indices, items)
+            
+            # Get image descriptions for LLM context
+            for img_path in image_paths:
+                # Find corresponding image metadata
+                for item in items:
+                    metadata = item.get("metadata", {})
+                    if (metadata.get("content_format") == "extracted_image" and 
+                        metadata.get("image_path") == img_path):
+                        # Get OCR text and context
+                        ocr_text = metadata.get("ocr_text", "")
+                        doc_context = metadata.get("document_context", "")
+                        img_type = metadata.get("image_type", "diagram")
+                        
+                        desc = f"Technical {img_type}"
+                        if ocr_text:
+                            desc += f" containing: {ocr_text[:200]}"
+                        if doc_context:
+                            desc += f" (Context: {doc_context[:100]})"
+                        
+                        image_descriptions.append(desc)
+                        break
+                else:
+                    # Fallback description based on filename
+                    img_name = os.path.basename(img_path)
+                    image_descriptions.append(f"Technical diagram: {img_name}")
+                    
+        except Exception as img_error:
+            if verbose:
+                print(f"⚠️  Image extraction failed: {img_error}")
+    elif verbose:
+        print("⚠️  No chunked file provided - skipping image extraction")
+
     # Build prompt with conversation context
     sources_block, cmap = format_citations(final_indices, items)
     system, user = build_prompt(question, final_indices, items)
+    
+    # Add image descriptions to the prompt if available
+    if image_descriptions:
+        image_context = "\n\nRelevant visual content available:\n" + "\n".join(
+            f"- {desc}" for desc in image_descriptions
+        )
+        user += image_context
+        if verbose:
+            print(f"📷 Added {len(image_descriptions)} image descriptions to LLM context")
     
     # Add conversation context if available
     if conversation_context:
         system += "\n\nFor context, here is our recent conversation:\n" + conversation_context
     # Admin/system override from GUI
-    if system_override:
+    if system_override and system_override.strip():
+        if verbose:
+            print(f"🔄 SYSTEM PROMPT OVERRIDE APPLIED")
+            print(f"   Original: {system[:100]}...")
+            print(f"   Override: {system_override[:100]}...")
         system = str(system_override)
+    elif verbose:
+        print(f"🔧 USING DEFAULT SYSTEM PROMPT")
     
     if verbose:
         VerboseRetrieval.print_header("LLM GENERATION")
-        print(f"System prompt: {system[:200]}{'...' if len(system) > 200 else ''}")
+        print(f"System prompt: {system[:500]}{'...' if len(system) > 500 else ''}")
         print(f"User prompt: {user[:300]}{'...' if len(user) > 300 else ''}")
         print(f"Timeout: {timeout}s")
     
@@ -348,6 +422,15 @@ def enhanced_answer(
     if verbose:
         print(f"✅ Generation completed in {generation_time:.1f}s")
 
+    # Images were already extracted before LLM generation above
+    
+    if verbose and image_paths:
+        print(f"📷 FOUND {len(image_paths)} RELEVANT IMAGES:")
+        for i, img_path in enumerate(image_paths, 1):
+            print(f"   [{i}] {os.path.basename(img_path)}")
+    elif verbose:
+        print(f"📷 No relevant images found for this query")
+
     # Prepare retrieval info for session storage
     retrieval_info = {
         "model_used": model_name,
@@ -358,16 +441,17 @@ def enhanced_answer(
         "reranked_results": len(reranked),
         "final_contexts": len(final_indices),
         "generation_time_s": generation_time,
-        "sources_count": len(final_indices)
+        "sources_count": len(final_indices),
+        "images_found": len(image_paths)
     }
 
-    return out, sources_block, retrieval_info
+    return out, sources_block, retrieval_info, image_paths
 
 
 def print_welcome(session: Optional[ChatSession] = None):
     """Print welcome message and instructions."""
     print("\n" + "="*80)
-    print("💬 TTQuery Interactive Chat")
+    print("💬 Synapse Interactive Chat")
     print("="*80)
     print("Welcome! Ask questions about your knowledge base.")
     
@@ -503,6 +587,27 @@ def run_gui(embeddings_path: str, default_timeout: int = 60) -> int:
         print(f"❌ Failed to load embeddings: {e}")
         return 1
 
+    # Derive chunked file path for image support
+    chunked_path = None
+    try:
+        from pathlib import Path
+        embeddings_file = Path(embeddings_path)
+        potential_chunked = embeddings_file.with_name("chunked.jsonl")
+        if potential_chunked.exists():
+            chunked_path = str(potential_chunked)
+            print(f"✅ Found chunked file for image support: {chunked_path}")
+        else:
+            # Try alternative naming
+            alt_chunked = embeddings_file.parent / "chunked_with_images.jsonl"
+            if alt_chunked.exists():
+                chunked_path = str(alt_chunked)
+                print(f"✅ Found chunked file for image support: {chunked_path}")
+            else:
+                print("⚠️  No chunked file found - image display will be limited")
+    except Exception as e:
+        print(f"⚠️  Could not check for chunked file: {e}")
+        chunked_path = None
+
     # Persistent session using CLI's ChatSession
     session = ChatSession(auto_continue=True)
     session_history: List[Dict] = []  # mirrored in-memory for quick UI rendering
@@ -510,9 +615,12 @@ def run_gui(embeddings_path: str, default_timeout: int = 60) -> int:
     # Admin-configurable RAG params (mutable via UI)
     rag_cfg = {
         "system_prompt": (
-            "You are a precise engineering assistant. Use ONLY the provided context. "
-            "Write a concise, coherent answer. When multiple chunks from the SAME document are provided, stitch them into a single cohesive section. "
-            "Quote exact phrases for key claims where appropriate. Use inline citations like [1], [2] immediately after the claims they support. If the answer is not found, say you don't know."
+            "You are an engineering assistant. Keep your responses relevant and based on the context. "
+            "Provide as much detail as possible but keep it concise. When asked for tables - reconstruct tables based on retrieved context. "
+            "IMPORTANT: Never include any citation numbers, brackets like [1], [2], or references to 'Context Document X' in your response. "
+            "Write naturally without any citation markers - the system will add citations separately. "
+            "When interpreting OCR text from technical diagrams, be careful about common OCR errors: '2x' may appear as part of adjacent text, 'I2C' may appear as '12C', 'x4' formatting may be inconsistent. "
+            "Always double-check technical specifications and component counts against the visual context when available."
         ),
         "topk": 10,
         "per_doc": 8,
@@ -554,8 +662,8 @@ def run_gui(embeddings_path: str, default_timeout: int = 60) -> int:
         if not session_history and session.history:
             for ex in session.history:
                 # Convert stored plain text to HTML for UI rendering
-                a_html = markdown.markdown(str(ex.get("answer", "")), extensions=["tables", "fenced_code"])
-                s_html = markdown.markdown(str(ex.get("sources", "")), extensions=["tables", "fenced_code"])
+                a_html = markdown.markdown(str(ex.get("answer", "")), extensions=["tables", "fenced_code", "nl2br", "toc", "attr_list"])
+                s_html = markdown.markdown(str(ex.get("sources", "")), extensions=["tables", "fenced_code", "nl2br"])
                 session_history.append({
                     "q": ex.get("question", ""),
                     "a_html": a_html,
@@ -618,7 +726,7 @@ def run_gui(embeddings_path: str, default_timeout: int = 60) -> int:
         # Conversation context for parity with CLI
         conv_ctx = session.get_context(last_n=3)
         try:
-            answer_text, sources_block, retrieval_info = enhanced_answer(
+            answer_text, sources_block, retrieval_info, image_paths = enhanced_answer(
                 question=question,
                 embeddings_path=embeddings_path,
                 conversation_context=conv_ctx,
@@ -627,7 +735,8 @@ def run_gui(embeddings_path: str, default_timeout: int = 60) -> int:
                 final_k=int(rag_cfg.get("topk", 10)),
                 lambda_mmr=float(rag_cfg.get("lambda_mmr", 0.8)),
                 timeout=int(rag_cfg.get("timeout", default_timeout)),
-                system_override=rag_cfg.get("system_prompt") if rag_cfg.get("system_prompt") else None,
+                system_override=rag_cfg.get("system_prompt"),
+                chunked_path=chunked_path,
             )
         except Exception as e:
             return jsonify({"ok": False, "error": str(e)}), 500
@@ -636,11 +745,33 @@ def run_gui(embeddings_path: str, default_timeout: int = 60) -> int:
         session.add_exchange(question, answer_text, sources_block, retrieval_info)
 
         # Keep in-memory history for UI
-        a_html = markdown.markdown(str(answer_text), extensions=["tables", "fenced_code"])
-        s_html = markdown.markdown(str(sources_block), extensions=["tables", "fenced_code"])
+        # Process answer with better markdown handling
+        processed_answer = str(answer_text)
+        # For now, skip automatic citations as they need more sophisticated implementation
+        # processed_answer = add_automatic_citations(processed_answer, final_indices, items)
+        
+        a_html = markdown.markdown(processed_answer, extensions=["tables", "fenced_code", "nl2br", "toc", "attr_list", "def_list"])
+        s_html = markdown.markdown(str(sources_block), extensions=["tables", "fenced_code", "nl2br"])
         session_history.append({"q": question, "a_html": a_html, "sources_html": s_html, "ts": time.time()})
 
-        resp = {"answer": answer_text, "sources": sources_block, "answer_html": a_html, "sources_html": s_html}
+        # Convert absolute paths to relative paths for the web interface
+        relative_image_paths = []
+        for img_path in image_paths:
+            try:
+                # Convert to relative path from project root
+                rel_path = os.path.relpath(img_path, start=os.getcwd())
+                relative_image_paths.append(rel_path)
+            except Exception:
+                # Fallback to absolute path if relative conversion fails
+                relative_image_paths.append(img_path)
+
+        resp = {
+            "answer": answer_text, 
+            "sources": sources_block, 
+            "answer_html": a_html, 
+            "sources_html": s_html,
+            "images": relative_image_paths
+        }
         if rag_cfg.get("verbose"):
             resp["retrieval_info"] = retrieval_info
         return jsonify(resp)
@@ -650,6 +781,39 @@ def run_gui(embeddings_path: str, default_timeout: int = 60) -> int:
         session_history.clear()
         session.clear_history()
         return jsonify({"ok": True})
+
+    @app.get("/api/image/<path:image_path>")
+    def serve_image(image_path: str):
+        """Serve images from the file system with security checks."""
+        try:
+            from flask import send_file, abort
+            
+            # Convert relative path back to absolute
+            if not os.path.isabs(image_path):
+                abs_path = os.path.abspath(os.path.join(os.getcwd(), image_path))
+            else:
+                abs_path = image_path
+            
+            # Security check: ensure file exists and is actually an image
+            if not os.path.isfile(abs_path):
+                abort(404)
+            
+            # Check file extension
+            allowed_extensions = {'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff', '.webp'}
+            file_ext = os.path.splitext(abs_path)[1].lower()
+            if file_ext not in allowed_extensions:
+                abort(403)
+            
+            # Additional security: ensure path is within the project directory or Data directory
+            project_root = os.path.abspath(os.getcwd())
+            if not abs_path.startswith(project_root):
+                abort(403)
+                
+            return send_file(abs_path)
+            
+        except Exception as e:
+            print(f"Error serving image {image_path}: {e}")
+            abort(500)
 
     @app.get("/api/export")
     def export():
@@ -662,11 +826,11 @@ def run_gui(embeddings_path: str, default_timeout: int = 60) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="TTQuery Interactive Chat")
+    parser = argparse.ArgumentParser(description="Synapse Interactive Chat")
     parser.add_argument(
         "--embeddings",
         type=str,
-        default="artifacts/embeddings.jsonl",
+        default="artifacts/embedded_with_images.npz",
         help="Path to embeddings file"
     )
     parser.add_argument("--session", type=str, help="Specific session file for conversation history")
@@ -743,11 +907,19 @@ def main() -> int:
             print("🤔 Thinking..."); start_time = time.time()
             try:
                 context = session.get_context(last_n=3)
-                answer, sources, retrieval_info = enhanced_answer(
+                answer, sources, retrieval_info, image_paths = enhanced_answer(
                     question=question, embeddings_path=embeddings_path, conversation_context=context,
-                    verbose=verbose_mode, timeout=args.timeout)
+                    verbose=verbose_mode, timeout=args.timeout, chunked_path=None)
                 total_time = time.time() - start_time
                 print(f"\n🤖 Assistant ({total_time:.1f}s):\n{answer.strip()}\n\n📚 Sources:\n{sources}")
+                
+                # Show relevant images if found
+                if image_paths:
+                    print(f"\n🖼️  Relevant Images ({len(image_paths)}):")
+                    for i, img_path in enumerate(image_paths, 1):
+                        print(f"  [{i}] {os.path.basename(img_path)}")
+                        print(f"      {img_path}")
+                
                 session.add_exchange(question, answer, sources, retrieval_info)
             except Exception as e:
                 print(f"❌ Error: {e}")

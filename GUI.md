@@ -1,8 +1,8 @@
-# TTQuery Web GUI Documentation
+# Synapse Web GUI Documentation
 
-**Modern Web Interface for TTQuery RAG System**
+**Modern Web Interface for Synapse RAG System**
 
-The TTQuery web GUI provides a polished, user-friendly interface for interacting with your document knowledge base. Built with modern web technologies, it offers all CLI functionality plus enhanced visual features and real-time configuration.
+The Synapse web GUI provides a polished, user-friendly interface for interacting with your document knowledge base. Built with modern web technologies, it offers all CLI functionality plus enhanced visual features and real-time configuration.
 
 ## 🚀 **Quick Start**
 
@@ -37,7 +37,7 @@ The GUI is split into two main areas:
 - **Input Area**: Multi-line text input with auto-resize
 - **Status Indicators**: Connection state and loading feedback
 
-![TTQuery GUI Layout](https://i.imgur.com/placeholder.png)
+![Synapse GUI Layout](https://i.imgur.com/placeholder.png)
 
 ## ⚙️ **Configuration Panel**
 
@@ -204,14 +204,14 @@ http://127.0.0.1:7860/?session=research&verbose=true&topk=15
 
 ### **File Structure**
 ```
-TTQuery/
+Synapse/
 ├── templates/
 │   └── index.html          # Main HTML template
 ├── static/
 │   ├── css/
 │   │   └── main.css        # Modern CSS with design system
 │   └── js/
-│       └── main.js         # TTQueryApp class and utilities
+│       └── main.js         # SynapseApp class and utilities
 └── chat.py                 # Flask server with API endpoints
 ```
 
@@ -231,7 +231,7 @@ TTQuery/
 
 ### **JavaScript Architecture**
 ```javascript
-class TTQueryApp {
+class SynapseApp {
   constructor()           // Initialize app and state
   init()                 // Setup event listeners and load data
   sendQuestion()         // Handle message submission
@@ -260,7 +260,7 @@ The interface uses CSS custom properties for easy theming:
 The modular architecture makes it easy to extend:
 
 1. **CSS**: Add styles to `static/css/main.css`
-2. **JavaScript**: Extend `TTQueryApp` class in `static/js/main.js`
+2. **JavaScript**: Extend `SynapseApp` class in `static/js/main.js`
 3. **Backend**: Add new routes in `run_gui()` function
 4. **Templates**: Modify `templates/index.html`
 

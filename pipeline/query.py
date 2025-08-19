@@ -220,15 +220,53 @@ def mmr_select(query_vec: np.ndarray, candidate_indices: List[int], E_full: np.n
 
 def format_citations(indices: List[int], items: List[Dict[str, object]]) -> Tuple[str, Dict[int, str]]:
     mapping: Dict[int, str] = {}
-    lines: List[str] = []
-    for n, i in enumerate(indices, start=1):
+    
+    # Group chunks by document
+    doc_groups: Dict[str, List[Dict]] = {}
+    for i in indices:
         it = items[i]
         src = str(it.get("source_path"))
+        doc_name = src.split("/")[-1]  # Get just the filename
         meta = dict(it.get("metadata", {}))
         page = meta.get("page_number") or meta.get("slide_number")
-        mapping[i] = f"[{n}]"
-        label = f"{src}" + (f" (page {int(page)})" if page else "")
-        lines.append(f"[{n}] {label}")
+        
+        if doc_name not in doc_groups:
+            doc_groups[doc_name] = []
+        doc_groups[doc_name].append({"index": i, "page": page})
+    
+    # Create citations grouped by document
+    lines: List[str] = []
+    citation_num = 1
+    
+    for doc_name, chunks in doc_groups.items():
+        # Collect all pages for this document
+        pages = []
+        chunk_indices = []
+        for chunk in chunks:
+            chunk_indices.append(chunk["index"])
+            if chunk["page"]:
+                pages.append(int(chunk["page"]))
+        
+        # Assign same citation number to all chunks from this document
+        for chunk_idx in chunk_indices:
+            mapping[chunk_idx] = f"[{citation_num}]"
+        
+        # Format the citation line
+        if pages:
+            pages_sorted = sorted(set(pages))  # Remove duplicates and sort
+            if len(pages_sorted) == 1:
+                page_info = f" (page {pages_sorted[0]})"
+            elif len(pages_sorted) <= 5:
+                page_info = f" (pages {', '.join(map(str, pages_sorted))})"
+            else:
+                # If too many pages, show range
+                page_info = f" (pages {pages_sorted[0]}-{pages_sorted[-1]} and others)"
+        else:
+            page_info = ""
+        
+        lines.append(f"[{citation_num}] {doc_name}{page_info}")
+        citation_num += 1
+    
     return "\n".join(lines), mapping
 
 
@@ -317,19 +355,22 @@ def build_prompt(question: str, final_indices: List[int], items: List[Dict[str, 
             text = text[:2200]
         if is_pptx:
             slide_title = _pptx_slide_label(meta)
-            block = f"[{n}] {slide_title}:\n{text}"
+            block = f"Source {n}: {slide_title}:\n{text}"
         elif preview:
-            block = f"[{n}] Table preview (first rows/cols):\n{preview}\n\nDetails: {text}"
+            block = f"Source {n}: Table preview (first rows/cols):\n{preview}\n\nDetails: {text}"
         else:
-            block = f"[{n}] {text}"
+            block = f"Source {n}: {text}"
         ctx_blocks.append(block)
     context = "\n\n".join(ctx_blocks)
     system = (
-        "You are a precise engineering assistant. Use ONLY the provided context. "
-        "Write a concise, coherent answer. When multiple chunks from the SAME document are provided, stitch them into a single cohesive section, preserving bullet structure and tables. "
-        "Quote exact phrases for key claims where appropriate. Use inline citations like [1], [2] immediately after the claims they support. If the answer is not found, say you don't know."
+        "You are an engineering assistant. Keep your responses relevant and based on the context. "
+        "Provide as much detail as possible but keep it concise. When asked for tables - reconstruct tables based on retrieved context. "
+        "IMPORTANT: Never include any citation numbers, brackets like [1], [2], or references to 'Context Document X' in your response. "
+        "Write naturally without any citation markers - the system will add citations separately. "
+        "When interpreting OCR text from technical diagrams, be careful about common OCR errors: '2x' may appear as part of adjacent text, 'I2C' may appear as '12C', 'x4' formatting may be inconsistent. "
+        "Always double-check technical specifications and component counts against the visual context when available. If the answer is not found, say you don't know."
     )
-    user = f"Question: {question}\n\nContext:\n{context}\n\nInstructions:\n- Prefer drawing from the same source when multiple chunks are provided\n- Preserve list/table structure\n- Avoid speculation; do not use outside knowledge\n\nProvide a concise answer with inline citations and a Sources list."
+    user = f"Question: {question}\n\nContext:\n{context}\n\nInstructions:\n- Prefer drawing from the same source when multiple chunks are provided\n- Preserve list/table structure\n- Avoid speculation; do not use outside knowledge\n- Format your response with clear paragraphs and bullet points\n\nProvide a concise, well-formatted answer."
     return system, user
 
 
@@ -386,6 +427,149 @@ def _derive_chunked_path_from_embeddings(embeddings_path: str) -> Optional[str]:
         return None
 
 
+def extract_relevant_images(question: str, final_indices: List[int], items: List[Dict[str, object]]) -> List[str]:
+    """Extract relevant image paths from retrieved context based on the question and context."""
+    image_paths = []
+    
+    # First, collect images from the retrieved context directly
+    for idx in final_indices:
+        item = items[idx]
+        source_type = str(item.get("source_type", ""))
+        metadata = item.get("metadata", {})
+        
+        # Check if this is an extracted image chunk
+        if source_type == "image" and metadata.get("content_format") == "extracted_image":
+            image_path = str(metadata.get("image_path", ""))
+            if image_path and os.path.isfile(image_path):
+                if image_path not in image_paths:
+                    image_paths.append(image_path)
+        
+        # Also check for original image files that were processed as images
+        elif source_type == "image":
+            source_path = str(item.get("source_path", ""))
+            if source_path and os.path.isfile(source_path):
+                if source_path not in image_paths:
+                    image_paths.append(source_path)
+    
+    # Second, look for images in the same documents as retrieved text chunks
+    # This helps find diagrams that are on the same pages as relevant text
+    relevant_docs = set()
+    relevant_pages = set()
+    
+    for idx in final_indices:
+        item = items[idx]
+        doc_id = str(item.get("document_id", ""))
+        relevant_docs.add(doc_id)
+        
+        metadata = item.get("metadata", {})
+        page_num = metadata.get("page_number")
+        if page_num:
+            source_path = str(item.get("source_path", ""))
+            relevant_pages.add((source_path, page_num))
+    
+    # Find images from the same documents and pages
+    for item in items:
+        source_type = str(item.get("source_type", ""))
+        if source_type == "image":
+            item_doc_id = str(item.get("document_id", ""))
+            metadata = item.get("metadata", {})
+            
+            # Check if this image is from a relevant document
+            if item_doc_id in relevant_docs:
+                # Check if it's from a relevant page or if it has matching keywords
+                item_page = metadata.get("page_number")
+                source_path = str(item.get("source_path", ""))
+                
+                page_key = (source_path, item_page)
+                is_relevant_page = page_key in relevant_pages
+                
+                # Check for keyword matches with the question
+                has_relevant_keywords = _has_relevant_technical_keywords(question, item)
+                
+                if is_relevant_page or has_relevant_keywords:
+                    if metadata.get("content_format") == "extracted_image":
+                        image_path = str(metadata.get("image_path", ""))
+                    else:
+                        image_path = source_path
+                    
+                    if image_path and os.path.isfile(image_path):
+                        if image_path not in image_paths:
+                            image_paths.append(image_path)
+    
+    # Third, heuristic matching based on specific technical terms
+    # This helps find relevant diagrams even if they're not on the exact same page
+    question_lower = question.lower()
+    
+    # Look for specific technical terms that indicate diagram relevance
+    diagram_keywords = {
+        "cluster": ["cluster", "cpu", "core", "architecture"],
+        "ras": ["ras", "reliability", "error", "interrupt"],
+        "cache": ["cache", "l1", "l2", "l3", "hierarchy"],
+        "timer": ["timer", "wdt", "watchdog", "peripheral"],
+        "architecture": ["architecture", "block", "diagram", "system"],
+        "interface": ["interface", "connection", "protocol", "bus"],
+        "ascalon": ["ascalon", "cpu", "risc-v", "vector"]
+    }
+    
+    for keyword_group, related_terms in diagram_keywords.items():
+        if any(term in question_lower for term in related_terms):
+            # Find images with matching technical keywords
+            for item in items:
+                source_type = str(item.get("source_type", ""))
+                if source_type == "image":
+                    metadata = item.get("metadata", {})
+                    technical_keywords = metadata.get("technical_keywords", [])
+                    
+                    # Check if image has relevant technical keywords
+                    if any(keyword.lower() in [tk.lower() for tk in technical_keywords] 
+                           for keyword in related_terms):
+                        
+                        if metadata.get("content_format") == "extracted_image":
+                            image_path = str(metadata.get("image_path", ""))
+                        else:
+                            image_path = str(item.get("source_path", ""))
+                        
+                        if image_path and os.path.isfile(image_path):
+                            if image_path not in image_paths:
+                                image_paths.append(image_path)
+    
+    # Limit to top 2 most relevant images to avoid overwhelming the response
+    return image_paths[:2]  # Max 2 images per response
+
+
+def _has_relevant_technical_keywords(question: str, image_item: Dict[str, object]) -> bool:
+    """Check if an image has technical keywords relevant to the question."""
+    question_lower = question.lower()
+    metadata = image_item.get("metadata", {})
+    
+    # Check technical keywords
+    technical_keywords = metadata.get("technical_keywords", [])
+    for keyword in technical_keywords:
+        if keyword.lower() in question_lower:
+            return True
+    
+    # Check image content
+    content = str(image_item.get("content", "")).lower()
+    
+    # Look for common technical terms that indicate relevance
+    question_words = set(re.findall(r'\b\w+\b', question_lower))
+    content_words = set(re.findall(r'\b\w+\b', content))
+    
+    # Technical terms that indicate diagram relevance
+    important_terms = {
+        "cpu", "core", "cluster", "cache", "timer", "interrupt", "ras", 
+        "architecture", "block", "diagram", "interface", "connection",
+        "ascalon", "risc-v", "vector", "pipeline", "peripheral", "bus"
+    }
+    
+    # Check for significant overlap in important technical terms
+    question_important = question_words & important_terms
+    content_important = content_words & important_terms
+    overlap = question_important & content_important
+    
+    return len(overlap) >= 2  # At least 2 overlapping important terms
+
+
 def answer(
     question: str,
     embeddings_path: str,
@@ -397,7 +581,8 @@ def answer(
     final_k: int = 10,
     lambda_mmr: float = 0.8,
     timeout: int = 60,
-) -> Tuple[str, str]:
+    include_images: bool = True,
+) -> Tuple[str, str, List[str]]:
     items = load_corpus(embeddings_path)
     if not items:
         raise RuntimeError("No embedding records found. Run parse -> chunk -> embed first.")
@@ -467,18 +652,24 @@ def answer(
     sources_block, cmap = format_citations(final_indices, items)
     system, user = build_prompt(question, final_indices, items, chunk_index)
     out = call_gemini_via_litellm(system, user, timeout=timeout)
+    
+    # Extract relevant images from the retrieved context
+    relevant_images = []
+    if include_images:
+        relevant_images = extract_relevant_images(question, final_indices, items)
 
-    sentences = [s for s in re.split(r"(?<=[.!?])\s+", out) if s.strip()]
-    cited = sum(1 for s in sentences if re.search(r"\[\d+\]", s))
-    if sentences and cited / len(sentences) < 0.6:
-        out += "\n\nNote: Some statements may require verification; see Sources."
+    # Citation verification note removed since we handle citations separately through sources_block
+    # sentences = [s for s in re.split(r"(?<=[.!?])\s+", out) if s.strip()]
+    # cited = sum(1 for s in sentences if re.search(r"\[\d+\]", s))
+    # if sentences and cited / len(sentences) < 0.6:
+    #     out += "\n\nNote: Some statements may require verification; see Sources."
 
-    return out, sources_block
+    return out, sources_block, relevant_images
 
 
 def main(argv: List[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Query the Synapse index with hybrid RAG and generate with Gemini via LiteLLM")
-    default_emb = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "artifacts", "embeddings.jsonl"))
+    default_emb = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "artifacts", "embedded_with_images.npz"))
     parser.add_argument("--question", type=str, required=False, help="User question")
     parser.add_argument("--embeddings", type=str, default=default_emb, help="Path to embeddings.jsonl")
     # --chunked is now optional; if omitted, derived from embeddings path
@@ -489,7 +680,7 @@ def main(argv: List[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     q = args.question or "What were the timing constraints for the version 2 Tensix L2 cache controller?"
-    out, sources = answer(
+    out, sources, images = answer(
         q,
         embeddings_path=os.path.abspath(args.embeddings),
         chunked_path=os.path.abspath(args.chunked) if args.chunked else None,
@@ -498,6 +689,10 @@ def main(argv: List[str] | None = None) -> int:
     )
     print(out.strip())
     print("\nSources:\n" + sources)
+    if images:
+        print(f"\nRelevant Images ({len(images)}):")
+        for i, img_path in enumerate(images, 1):
+            print(f"  [{i}] {img_path}")
     return 0
 
 

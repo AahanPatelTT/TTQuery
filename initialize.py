@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TTQuery Initialization Script
+Synapse Initialization Script
 
 This script automatically runs the complete Parse → Chunk → Embed pipeline
 to prepare your knowledge base for querying. It handles the entire setup
@@ -39,15 +39,15 @@ def setup_logging(verbose: bool = False) -> None:
 
 
 def print_banner() -> None:
-    """Print the TTQuery initialization banner."""
+    """Print the Synapse initialization banner."""
     print("\n" + "="*80)
-    print("████████╗████████╗ ██████╗ ██╗   ██╗███████╗██████╗ ██╗   ██╗")
-    print("╚══██╔══╝╚══██╔══╝██╔═══██╗██║   ██║██╔════╝██╔══██╗╚██╗ ██╔╝")
-    print("   ██║      ██║   ██║   ██║██║   ██║█████╗  ██████╔╝ ╚████╔╝ ")
-    print("   ██║      ██║   ██║▄▄ ██║██║   ██║██╔══╝  ██╔══██╗  ╚██╔╝  ")
-    print("   ██║      ██║   ╚██████╔╝╚██████╔╝███████╗██║  ██║   ██║   ")
-    print("   ╚═╝      ╚═╝    ╚══▀▀═╝  ╚═════╝ ╚══════╝╚═╝  ╚═╝   ╚═╝   ")
-    print("                                                              ")
+    print("██████╗ ██████╗  ██████╗      ██╗███████╗ ██████╗████████╗")
+    print("██╔══██╗██╔══██╗██╔═══██╗     ██║██╔════╝██╔════╝╚══██╔══╝")
+    print("██████╔╝██████╔╝██║   ██║     ██║█████╗  ██║        ██║   ")
+    print("██╔═══╝ ██╔══██╗██║   ██║██   ██║██╔══╝  ██║        ██║   ")
+    print("██║     ██║  ██║╚██████╔╝╚█████╔╝███████╗╚██████╗   ██║   ")
+    print("╚═╝     ╚═╝  ╚═╝ ╚═════╝  ╚════╝ ╚══════╝ ╚═════╝   ╚═╝   ")
+    print("                                                          ")
     print("              KNOWLEDGE BASE INITIALIZATION                   ")
     print("="*80)
 
@@ -139,7 +139,7 @@ def check_file_exists(filepath: str, stage_name: str) -> bool:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Initialize TTQuery knowledge base")
+    parser = argparse.ArgumentParser(description="Initialize Synapse knowledge base")
     parser.add_argument(
         "--data-dir", 
         type=str, 
@@ -201,9 +201,9 @@ def main() -> int:
     artifacts_dir = os.path.abspath(args.artifacts_dir)
     os.makedirs(artifacts_dir, exist_ok=True)
     
-    parsed_path = os.path.join(artifacts_dir, "parsed.jsonl")
-    chunked_path = os.path.join(artifacts_dir, "chunked.jsonl") 
-    embeddings_path = os.path.join(artifacts_dir, "embeddings.jsonl")
+    parsed_path = os.path.join(artifacts_dir, "parsed_with_images.jsonl")
+    chunked_path = os.path.join(artifacts_dir, "chunked_with_images.jsonl") 
+    embeddings_path = os.path.join(artifacts_dir, "embedded_with_images.npz")
     
     print(f"📁 Data directory: {data_dir}")
     print(f"📁 Artifacts directory: {artifacts_dir}")
@@ -247,7 +247,8 @@ def main() -> int:
         cmd = [
             sys.executable, "pipeline/parse.py",
             "--input", data_dir,
-            "--output", parsed_path
+            "--output", parsed_path,
+            "--extract-images"  # Enable image extraction by default
         ]
         if args.verbose:
             cmd.append("--verbose")

@@ -49,4 +49,8 @@ litellm>=1.43.7
 flask>=3.0.3
 markdown>=3.6
 
+# Confluence ingestion
+atlassian-python-api>=3.41.16
+markdownify>=0.13.1
+
  
