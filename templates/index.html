@@ -88,6 +88,31 @@
                     </div>
                 </div>
 
+                <!-- Image Options -->
+                <div class="section">
+                    <div class="section-header">Image Options</div>
+                    <div class="param-row">
+                        <div style="flex: 1;">
+                            <label for="max-images">
+                                Max Images
+                                <span class="help-icon">?
+                                    <div class="tooltip">Maximum number of images to include in responses. Set to 0 to disable images completely</div>
+                                </span>
+                            </label>
+                            <input id="max-images" type="number" min="0" max="10" value="2" />
+                        </div>
+                    </div>
+                    <div class="row">
+                        <input id="images-enabled" type="checkbox" checked />
+                        <label for="images-enabled">
+                            Enable image retrieval
+                            <span class="help-icon">?
+                                <div class="tooltip">When enabled, relevant diagrams and images will be included in responses</div>
+                            </span>
+                        </label>
+                    </div>
+                </div>
+
                 <!-- Debug Options -->
                 <div class="section">
                     <div class="section-header">Debug Options</div>
@@ -112,6 +137,23 @@
                     </div>
                 </div>
 
+                <!-- Config Management -->
+                <div class="section">
+                    <div class="section-header">
+                        Config Management
+                        <span class="help-icon">?
+                            <div class="tooltip">Manage configuration presets. Save current settings as default or reset to default values</div>
+                        </span>
+                    </div>
+                    <div class="row" style="flex-wrap: wrap; gap: 8px;">
+                        <button id="save-as-default-btn" class="success" title="Save current configuration as default for new sessions">⭐ Save as Default</button>
+                        <button id="reset-to-default-btn" title="Reset current session to default configuration">🔄 Reset to Default</button>
+                    </div>
+                    <div id="config-status" class="small" style="margin-top: 8px; padding: 6px; background: rgba(102, 126, 234, 0.1); border-radius: 4px; font-size: 12px;">
+                        Config linked to current session
+                    </div>
+                </div>
+
                 <!-- Session Management -->
                 <div class="section">
                     <div class="section-header">
@@ -132,6 +174,9 @@
                     </div>
                     <div id="session-info" class="small" style="margin-top: 12px; padding: 8px; background: rgba(102, 126, 234, 0.1); border-radius: 6px;">
                         Loading session info...
+                    </div>
+                    <div class="small" style="margin-top: 8px; padding: 6px; background: rgba(255, 193, 7, 0.1); border-radius: 4px; font-size: 11px; color: #856404;">
+                        💡 <strong>Tip:</strong> Each session has its own config. Switch sessions to see their individual settings.
                     </div>
                 </div>
 
@@ -165,11 +210,20 @@
 
             <!-- Input Footer -->
             <div class="footer">
-                <textarea 
-                    id="question-input" 
-                    placeholder="Ask a question about your knowledge base..." 
-                    rows="1"
-                    style="flex: 1; resize: none; overflow: hidden; min-height: 40px;"></textarea>
+                <div style="display: flex; flex-direction: column; flex: 1; gap: 8px;">
+                    <textarea 
+                        id="question-input" 
+                        placeholder="Ask a question about your knowledge base..." 
+                        rows="1"
+                        style="flex: 1; resize: none; overflow: hidden; min-height: 40px;"></textarea>
+                    <div style="display: flex; align-items: center; gap: 12px; font-size: 13px; color: #666;">
+                        <label style="display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                            <input id="quick-images-toggle" type="checkbox" checked style="margin: 0;" />
+                            <span>📷 Include images</span>
+                        </label>
+                        <span id="image-count-display" style="color: #999; font-size: 12px;">Max: 2</span>
+                    </div>
+                </div>
                 <button id="send-btn" class="primary">Send</button>
             </div>
         </div>

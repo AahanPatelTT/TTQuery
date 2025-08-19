@@ -1,0 +1,91 @@
+Magic 271485
+Revision Verdi_U-2023.03-SP2-5
+
+; Window Layout <x> <y> <width> <height> <signalwidth> <valuewidth>
+viewPort 0 25 1596 484 276 65
+
+; File list:
+; openDirFile [-d delimiter] [-s time_offset] [-rf auto_bus_rule_file] path_name file_name
+
+; file time scale:
+; fileTimeScale ### s|ms|us|ns|ps
+
+; signal spacing:
+signalSpacing 5
+
+; windowTimeUnit is used for zoom, cursor & marker
+; waveform viewport range
+zoom 400000.000000 76446290000.000000
+cursor 72098750000.000000
+marker 400000.000000
+
+; user define markers
+; userMarker time_pos marker_name color linestyle
+userMarker 71866250000 "Config Done" ID_GREEN5 long_dashed
+userMarker 315200000 "Out of Cold Reset" ID_GREEN5 long_dashed
+userMarker 535200000 "Remove force_ss_to_ref_clk" ID_GREEN5 long_dashed
+userMarker 701600000 "SRAM Wr: CrClusterFuse" ID_GREEN5 long_dashed
+userMarker 738800000 "SRAM Wr: Reset Vector" ID_GREEN5 long_dashed
+userMarker 776400000 "Reset Ctrl Wr (Release CPL out of Reset)" ID_GREEN5 long_dashed
+userMarker 72098750000 "Write reg to allow Core fetch" ID_GREEN5 long_dashed
+userMarker 71933750000 "Write reg to program ACLINT mtime" ID_GREEN5 long_dashed
+
+; visible top row signal index
+top 0
+; marker line index
+markerPos 30
+
+; event list
+; addEvent event_name event_expression
+; curEvent event_name
+
+
+
+COMPLEX_EVENT_BEGIN
+
+
+COMPLEX_EVENT_END
+
+
+
+; toolbar current search type
+; curSTATUS search_type
+curSTATUS ByChange
+
+
+addGroup "Clocks"
+addSignal -h 15 /top/genblk1/dut_harness/dut/i_fb_clk
+addSignal -h 15 -holdScope i_rf_clk
+addSignal -h 15 -holdScope i_sc_clk
+addGroup "Reset/Interrupts/Control Signals"
+addSignal -h 15 /top/genblk1/dut_harness/dut/i_cluster_cold_reset_n
+addSignal -h 15 -holdScope i_force_ss_to_ref_clock_n
+addSignal -h 15 -holdScope o_cluster_interrupts[18]
+addGroup "CPL AXI4 Interface"
+addSubGroup "Write Address Channel"
+addSignal -h 15 /top/genblk1/dut_harness/dut/i_cpl_s0_awvalid
+addSignal -h 15 -holdScope o_cpl_s0_awready
+addSignal -h 15 -UNSIGNED -HEX -holdScope i_cpl_s0_awid[6:0]
+addSignal -h 15 -UNSIGNED -HEX -holdScope i_cpl_s0_awaddr[31:0]
+addSignal -h 15 -UNSIGNED -HEX -holdScope i_cpl_s0_awlen[7:0]
+addSignal -h 15 -UNSIGNED -HEX -holdScope i_cpl_s0_awsize[2:0]
+addSignal -h 15 -UNSIGNED -HEX -holdScope i_cpl_s0_awburst[1:0]
+addSignal -h 15 -UNSIGNED -HEX -holdScope i_cpl_s0_awprot[2:0]
+addSignal -h 15 -UNSIGNED -HEX -holdScope i_cpl_s0_awuser[3:0]
+endSubGroup "Write Address Channel"
+addSubGroup "Write Data Channel"
+addSignal -h 15 /top/genblk1/dut_harness/dut/i_cpl_s0_wvalid
+addSignal -h 15 -holdScope o_cpl_s0_wready
+addSignal -h 15 -UNSIGNED -HEX -holdScope i_cpl_s0_wdata[63:0]
+addSignal -h 15 -UNSIGNED -HEX -holdScope i_cpl_s0_wstrb[7:0]
+addSignal -h 15 -holdScope i_cpl_s0_wlast
+endSubGroup "Write Data Channel"
+addGroup "Write Response Channel"
+addSignal -h 15 /top/genblk1/dut_harness/dut/i_cpl_s0_bready
+addSignal -h 15 -UNSIGNED -HEX -holdScope o_cpl_s0_bid[6:0]
+addSignal -h 15 -UNSIGNED -HEX -holdScope o_cpl_s0_bresp[1:0]
+addSignal -h 15 -holdScope o_cpl_s0_bvalid
+addGroup "G5"
+
+; getSignalForm Scope Hierarchy Status
+; active file of getSignalForm

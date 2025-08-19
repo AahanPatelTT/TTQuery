@@ -34,7 +34,7 @@ transformers>=4.43
 
 # Embedding providers
 sentence-transformers>=2.7.0
-openai>=1.35.0
+openai==1.99.5
 colbert-ai>=0.2.19
 
 # Retrieval stack
