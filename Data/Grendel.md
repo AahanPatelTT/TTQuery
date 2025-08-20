@@ -1,1 +1,0 @@
-[Packaging and Configs ](https://tenstorrent.atlassian.net/wiki/spaces/Packaging/pages/379846657/Grendel+Packaging+Overview)
