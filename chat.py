@@ -940,7 +940,7 @@ def run_gui(embeddings_path: str, default_timeout: int = 60) -> int:
         data = json.dumps({"history": session_history}, indent=2)
         return Response(data, mimetype='application/json')
 
-    app.run(host="127.0.0.1", port=7860, debug=False)
+    app.run(host="0.0.0.0", port=7860, debug=False)
     return 0
 
 
