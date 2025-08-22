@@ -2,3 +2,4 @@ artifacts/
 sessions/
 .venv/
 Data/
+litellm_config.yaml
