@@ -708,23 +708,190 @@ def answer(
     return out, sources_block, relevant_images
 
 
+def list_available_knowledge_bases(artifacts_dir: str) -> List[Dict[str, str]]:
+    """List all available knowledge bases (folder-based embeddings)."""
+    import glob
+    
+    # Find all embedding files
+    pattern = os.path.join(artifacts_dir, "embedded_*.jsonl")
+    embedding_files = glob.glob(pattern)
+    
+    knowledge_bases = []
+    for embed_file in sorted(embedding_files):
+        basename = os.path.basename(embed_file)
+        if basename.startswith("embedded_") and basename.endswith(".jsonl"):
+            folder_name = basename[9:-6]  # Remove "embedded_" and ".jsonl"
+            
+            # Find corresponding chunked file
+            chunked_file = os.path.join(artifacts_dir, f"chunked_{folder_name}.jsonl")
+            
+            # Get file stats for additional info
+            try:
+                file_stats = os.stat(embed_file)
+                file_size = file_stats.st_size
+                # Count chunks by reading the file
+                chunk_count = 0
+                try:
+                    with open(embed_file, 'r') as f:
+                        for _ in f:
+                            chunk_count += 1
+                except:
+                    chunk_count = 0
+            except:
+                file_size = 0
+                chunk_count = 0
+            
+            knowledge_bases.append({
+                'name': folder_name,
+                'display_name': folder_name.replace('_', ' ').replace('hash_', '#'),
+                'embeddings_path': embed_file,
+                'chunked_path': chunked_file if os.path.exists(chunked_file) else None,
+                'file_size': file_size,
+                'chunk_count': chunk_count
+            })
+    
+    return knowledge_bases
+
+
+def interactive_knowledge_base_selector(artifacts_dir: str) -> Optional[Dict[str, str]]:
+    """Interactive knowledge base selection with enhanced display."""
+    knowledge_bases = list_available_knowledge_bases(artifacts_dir)
+    
+    if not knowledge_bases:
+        print("❌ No knowledge bases found. Run folder-based initialization first:")
+        print("   python initialize_folders.py")
+        return None
+    
+    print("\n" + "="*80)
+    print("📚 AVAILABLE KNOWLEDGE BASES")
+    print("="*80)
+    
+    for i, kb in enumerate(knowledge_bases, 1):
+        size_mb = kb['file_size'] / (1024 * 1024) if kb['file_size'] > 0 else 0
+        chunk_info = f"{kb['chunk_count']:,} chunks" if kb['chunk_count'] > 0 else "unknown chunks"
+        size_info = f"{size_mb:.1f} MB" if size_mb > 0 else "unknown size"
+        
+        print(f"  {i:2d}. 📁 {kb['display_name']}")
+        print(f"      ID: {kb['name']}")
+        print(f"      📊 {chunk_info}, {size_info}")
+        print(f"      📄 {os.path.basename(kb['embeddings_path'])}")
+        if kb['chunked_path']:
+            print(f"      🧩 {os.path.basename(kb['chunked_path'])}")
+        print()
+    
+    print(f"  0.  🔙 Use default knowledge base")
+    print("="*80)
+    
+    while True:
+        try:
+            choice = input(f"Select knowledge base (0-{len(knowledge_bases)}): ").strip()
+            
+            if choice == "0":
+                return None  # Use default
+            
+            choice_num = int(choice)
+            if 1 <= choice_num <= len(knowledge_bases):
+                selected_kb = knowledge_bases[choice_num - 1]
+                print(f"✅ Selected: {selected_kb['display_name']}")
+                return selected_kb
+            else:
+                print(f"❌ Please enter a number between 0 and {len(knowledge_bases)}")
+        except ValueError:
+            print("❌ Please enter a valid number")
+        except (EOFError, KeyboardInterrupt):
+            print("\n❌ Selection cancelled")
+            return None
+
+
 def main(argv: List[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Query the Synapse index with hybrid RAG and generate with Gemini via LiteLLM")
     default_emb = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "artifacts", "embedded_with_images.npz"))
     parser.add_argument("--question", type=str, required=False, help="User question")
-    parser.add_argument("--embeddings", type=str, default=default_emb, help="Path to embeddings.jsonl")
+    parser.add_argument("--embeddings", type=str, default=default_emb, help="Path to embeddings.jsonl or knowledge base name")
     # --chunked is now optional; if omitted, derived from embeddings path
     parser.add_argument("--chunked", type=str, default=None, help="Path to chunked.jsonl (optional; auto-derived)")
+    parser.add_argument("--list-kb", action="store_true", help="List available knowledge bases and exit")
+    parser.add_argument("--kb", type=str, help="Use specific knowledge base by name (e.g., 'Confluence_IPS', 'Aahan_Notes')")
+    parser.add_argument("--select-kb", action="store_true", help="Interactively select knowledge base from available options")
     parser.add_argument("--timeout", type=int, default=60, help="LLM timeout (s)")
     parser.add_argument("--topk", type=int, default=10, help="Final K contexts")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args(argv)
 
+    # Handle knowledge base listing
+    if args.list_kb:
+        artifacts_dir = os.path.dirname(os.path.abspath(args.embeddings))
+        knowledge_bases = list_available_knowledge_bases(artifacts_dir)
+        
+        if not knowledge_bases:
+            print("No knowledge bases found. Run folder-based parsing and embedding first:")
+            print("  python initialize_folders.py")
+            return 1
+        
+        print("Available Knowledge Bases:")
+        print("=" * 50)
+        for kb in knowledge_bases:
+            size_mb = kb['file_size'] / (1024 * 1024) if kb['file_size'] > 0 else 0
+            chunk_info = f"{kb['chunk_count']:,} chunks" if kb['chunk_count'] > 0 else "unknown chunks"
+            size_info = f"{size_mb:.1f} MB" if size_mb > 0 else "unknown size"
+            
+            print(f"📚 {kb['display_name']} ({kb['name']})")
+            print(f"   📊 {chunk_info}, {size_info}")
+            print(f"   📄 Embeddings: {os.path.basename(kb['embeddings_path'])}")
+            if kb['chunked_path']:
+                print(f"   🧩 Chunks: {os.path.basename(kb['chunked_path'])}")
+            print()
+        
+        print("Usage:")
+        print(f"  python pipeline/query.py --kb \"{knowledge_bases[0]['name']}\" --question \"Your question\"")
+        print(f"  python pipeline/query.py --select-kb --question \"Your question\"")
+        return 0
+    
+    # Handle interactive knowledge base selection
+    if args.select_kb:
+        artifacts_dir = os.path.dirname(os.path.abspath(args.embeddings))
+        selected_kb = interactive_knowledge_base_selector(artifacts_dir)
+        
+        if selected_kb is None:
+            print("Using default knowledge base...")
+        else:
+            # Override the kb argument with the selected knowledge base
+            args.kb = selected_kb['name']
+    
+    # Handle knowledge base selection
+    embeddings_path = args.embeddings
+    chunked_path = args.chunked
+    
+    if args.kb:
+        # Find the specified knowledge base
+        artifacts_dir = os.path.dirname(os.path.abspath(args.embeddings))
+        knowledge_bases = list_available_knowledge_bases(artifacts_dir)
+        
+        selected_kb = None
+        for kb in knowledge_bases:
+            if kb['name'] == args.kb or kb['display_name'].lower() == args.kb.lower():
+                selected_kb = kb
+                break
+        
+        if not selected_kb:
+            print(f"Knowledge base '{args.kb}' not found. Available options:")
+            for kb in knowledge_bases:
+                print(f"  - {kb['name']} ({kb['display_name']})")
+            return 1
+        
+        embeddings_path = selected_kb['embeddings_path']
+        chunked_path = selected_kb['chunked_path']
+        print(f"🔍 Using knowledge base: {selected_kb['display_name']}")
+        print(f"📄 Embeddings: {os.path.basename(embeddings_path)}")
+        if chunked_path:
+            print(f"🧩 Chunks: {os.path.basename(chunked_path)}")
+        print()
+
     q = args.question or "What were the timing constraints for the version 2 Tensix L2 cache controller?"
     out, sources, images = answer(
         q,
-        embeddings_path=os.path.abspath(args.embeddings),
-        chunked_path=os.path.abspath(args.chunked) if args.chunked else None,
+        embeddings_path=os.path.abspath(embeddings_path),
+        chunked_path=os.path.abspath(chunked_path) if chunked_path else None,
         final_k=int(args.topk),
         timeout=int(args.timeout),
     )

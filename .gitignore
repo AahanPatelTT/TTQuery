@@ -3,3 +3,33 @@ sessions/
 .venv/
 Data/
 litellm_config.yaml
+
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Log files
+*.log
+gui.log
+
+# Temporary files
+*.tmp
+*.temp

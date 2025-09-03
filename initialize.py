@@ -93,32 +93,28 @@ def run_command(cmd: List[str], stage_name: str, no_cache: bool = False) -> bool
     
     print(f"\n🔄 Starting {stage_name}...")
     print(f"   Command: {' '.join(cmd)}")
+    print("   Progress will be shown below:")
+    print()
     
     start_time = time.time()
     
     try:
+        # Run command with real-time output for progress tracking
         result = subprocess.run(
             cmd,
-            capture_output=True,
+            capture_output=False,  # Allow real-time output
             text=True,
             check=True
         )
         
         elapsed = time.time() - start_time
-        print(f"✅ {stage_name} completed successfully in {elapsed:.1f}s")
-        
-        # Show key output lines
-        if result.stdout:
-            lines = result.stdout.strip().split('\n')
-            for line in lines[-5:]:  # Show last 5 lines
-                if line.strip() and ('completed' in line.lower() or 'wrote' in line.lower() or '=' in line):
-                    print(f"   {line.strip()}")
+        print(f"\n✅ {stage_name} completed successfully in {elapsed:.1f}s")
         
         return True
         
     except subprocess.CalledProcessError as e:
         elapsed = time.time() - start_time
-        print(f"❌ {stage_name} failed after {elapsed:.1f}s")
+        print(f"\n❌ {stage_name} failed after {elapsed:.1f}s")
         print(f"   Error: {e}")
         if e.stdout:
             print(f"   Output: {e.stdout}")
@@ -190,6 +186,11 @@ def main() -> int:
         action="store_true",
         help="Verbose output"
     )
+    parser.add_argument(
+        "--folder-based",
+        action="store_true",
+        help="Enable folder-based processing for specialized knowledge bases"
+    )
     
     args = parser.parse_args()
     
@@ -242,87 +243,172 @@ def main() -> int:
     # Pipeline execution
     success = True
     
-    # Step 1: Parse
-    if not args.skip_parse:
-        cmd = [
-            sys.executable, "pipeline/parse.py",
-            "--input", data_dir,
-            "--output", parsed_path,
-            "--extract-images"  # Enable image extraction by default
-        ]
-        if args.verbose:
-            cmd.append("--verbose")
+    if args.folder_based:
+        print(f"\n🗂️  FOLDER-BASED PROCESSING ENABLED")
+        print("   Creating specialized knowledge bases for each folder")
         
-        if not run_command(cmd, "PARSING", args.force_reprocess):
-            success = False
+        # Step 1: Parse (folder-based)
+        if not args.skip_parse:
+            cmd = [
+                sys.executable, "pipeline/parse.py",
+                "--input", data_dir,
+                "--output", parsed_path,
+                "--folder-based",
+                "--extract-images"  # Enable image extraction by default
+            ]
+            if args.verbose:
+                cmd.append("--verbose")
+            if args.force_reprocess:
+                cmd.append("--no-cache")
+            
+            if not run_command(cmd, "FOLDER-BASED PARSING", args.force_reprocess):
+                success = False
         else:
-            check_file_exists(parsed_path, "parsing")
-    else:
-        print("\n⏭️  Skipping parsing step")
-        if not check_file_exists(parsed_path, "parsing"):
-            success = False
-    
-    # Step 2: Chunk
-    if success and not args.skip_chunk:
-        cmd = [
-            sys.executable, "pipeline/chunk.py",
-            "--input", parsed_path,
-            "--output", chunked_path
-        ]
-        if args.verbose:
-            cmd.append("--verbose")
+            print("\n⏭️  Skipping parsing step")
         
-        if not run_command(cmd, "CHUNKING", args.force_reprocess):
-            success = False
+        # Step 2: Chunk (folder-based)
+        if success and not args.skip_chunk:
+            cmd = [
+                sys.executable, "pipeline/chunk.py",
+                "--folder-based"
+            ]
+            if args.verbose:
+                cmd.append("--verbose")
+            
+            if not run_command(cmd, "FOLDER-BASED CHUNKING", args.force_reprocess):
+                success = False
+        elif not args.skip_chunk:
+            print("\n⏭️  Skipping chunking due to previous failure")
         else:
-            check_file_exists(chunked_path, "chunking")
-    elif not args.skip_chunk:
-        print("\n⏭️  Skipping chunking due to previous failure")
-    else:
-        print("\n⏭️  Skipping chunking step")
-        if not check_file_exists(chunked_path, "chunking"):
-            success = False
-    
-    # Step 3: Embed
-    if success and not args.skip_embed:
-        cmd = [
-            sys.executable, "pipeline/embed.py",
-            "--input", chunked_path,
-            "--output", embeddings_path,
-            "--provider", args.provider,
-            "--embed-model", args.embed_model
-        ]
-        if args.verbose:
-            cmd.append("--verbose")
+            print("\n⏭️  Skipping chunking step")
         
-        if not run_command(cmd, "EMBEDDING", args.force_reprocess):
-            success = False
+        # Step 3: Embed (folder-based)
+        if success and not args.skip_embed:
+            cmd = [
+                sys.executable, "pipeline/embed.py",
+                "--folder-based",
+                "--provider", args.provider,
+                "--embed-model", args.embed_model
+            ]
+            if args.verbose:
+                cmd.append("--verbose")
+            if args.force_reprocess:
+                cmd.append("--no-cache")
+            
+            if not run_command(cmd, "FOLDER-BASED EMBEDDING", args.force_reprocess):
+                success = False
+        elif not args.skip_embed:
+            print("\n⏭️  Skipping embedding due to previous failure")
         else:
-            check_file_exists(embeddings_path, "embedding")
-    elif not args.skip_embed:
-        print("\n⏭️  Skipping embedding due to previous failure")
+            print("\n⏭️  Skipping embedding step")
+        
     else:
-        print("\n⏭️  Skipping embedding step")
-        if not check_file_exists(embeddings_path, "embedding"):
-            success = False
+        # Original single-file processing
+        # Step 1: Parse
+        if not args.skip_parse:
+            cmd = [
+                sys.executable, "pipeline/parse.py",
+                "--input", data_dir,
+                "--output", parsed_path,
+                "--extract-images"  # Enable image extraction by default
+            ]
+            if args.verbose:
+                cmd.append("--verbose")
+            if args.force_reprocess:
+                cmd.append("--no-cache")
+            
+            if not run_command(cmd, "PARSING", args.force_reprocess):
+                success = False
+            else:
+                check_file_exists(parsed_path, "parsing")
+        else:
+            print("\n⏭️  Skipping parsing step")
+            if not check_file_exists(parsed_path, "parsing"):
+                success = False
+        
+        # Step 2: Chunk
+        if success and not args.skip_chunk:
+            cmd = [
+                sys.executable, "pipeline/chunk.py",
+                "--input", parsed_path,
+                "--output", chunked_path
+            ]
+            if args.verbose:
+                cmd.append("--verbose")
+            
+            if not run_command(cmd, "CHUNKING", args.force_reprocess):
+                success = False
+            else:
+                check_file_exists(chunked_path, "chunking")
+        elif not args.skip_chunk:
+            print("\n⏭️  Skipping chunking due to previous failure")
+        else:
+            print("\n⏭️  Skipping chunking step")
+            if not check_file_exists(chunked_path, "chunking"):
+                success = False
+        
+        # Step 3: Embed
+        if success and not args.skip_embed:
+            cmd = [
+                sys.executable, "pipeline/embed.py",
+                "--input", chunked_path,
+                "--output", embeddings_path,
+                "--provider", args.provider,
+                "--embed-model", args.embed_model
+            ]
+            if args.verbose:
+                cmd.append("--verbose")
+            if args.force_reprocess:
+                cmd.append("--no-cache")
+            
+            if not run_command(cmd, "EMBEDDING", args.force_reprocess):
+                success = False
+            else:
+                check_file_exists(embeddings_path, "embedding")
+        elif not args.skip_embed:
+            print("\n⏭️  Skipping embedding due to previous failure")
+        else:
+            print("\n⏭️  Skipping embedding step")
+            if not check_file_exists(embeddings_path, "embedding"):
+                success = False
     
     # Final status
     print("\n" + "="*80)
     if success:
         print("🎉 INITIALIZATION COMPLETED SUCCESSFULLY!")
         print("="*80)
-        print("📋 SUMMARY:")
-        print(f"   📄 Parsed documents: {parsed_path}")
-        print(f"   🔨 Chunked content: {chunked_path}")
-        print(f"   🧠 Embeddings ready: {embeddings_path}")
-        print("\n🚀 NEXT STEPS:")
-        print("   1. Set environment variables (if not already done):")
-        print("      export LITELLM_API_KEY=your_key")
-        print("      export LITELLM_BASE_URL=https://litellm-proxy--tenstorrent.workload.tenstorrent.com/")
-        print("   2. Start chatting:")
-        print("      python chat.py")
-        print("   3. Or run a single query:")
-        print(f"      python pipeline/query.py --question 'Your question' --embeddings {embeddings_path}")
+        
+        if args.folder_based:
+            print("📋 FOLDER-BASED SUMMARY:")
+            print(f"   🗂️  Created specialized knowledge bases from folder structure")
+            print(f"   📁 Check {artifacts_dir}/ for:")
+            print(f"      - parsed_*.jsonl (parsed documents by folder)")
+            print(f"      - chunked_*.jsonl (chunked content by folder)")
+            print(f"      - embedded_*.jsonl (embeddings by folder)")
+            print("\n🚀 NEXT STEPS:")
+            print("   1. Set environment variables (if not already done):")
+            print("      export LITELLM_API_KEY=your_key")
+            print("      export LITELLM_BASE_URL=https://litellm-proxy--tenstorrent.workload.tenstorrent.com/")
+            print("   2. List available knowledge bases:")
+            print("      python pipeline/query.py --list-kb")
+            print("   3. Query specific knowledge base:")
+            print("      python pipeline/query.py --kb \"folder_name\" --question \"Your question\"")
+            print("   4. Or start chatting (will need GUI update to support knowledge base selection):")
+            print("      python chat.py")
+        else:
+            print("📋 SUMMARY:")
+            print(f"   📄 Parsed documents: {parsed_path}")
+            print(f"   🔨 Chunked content: {chunked_path}")
+            print(f"   🧠 Embeddings ready: {embeddings_path}")
+            print("\n🚀 NEXT STEPS:")
+            print("   1. Set environment variables (if not already done):")
+            print("      export LITELLM_API_KEY=your_key")
+            print("      export LITELLM_BASE_URL=https://litellm-proxy--tenstorrent.workload.tenstorrent.com/")
+            print("   2. Start chatting:")
+            print("      python chat.py")
+            print("   3. Or run a single query:")
+            print(f"      python pipeline/query.py --question 'Your question' --embeddings {embeddings_path}")
+        
         print("="*80)
         return 0
     else:

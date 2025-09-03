@@ -347,6 +347,339 @@ def add_automatic_citations(text: str, final_indices: List[int], items: List[Dic
     return ' '.join(result_sentences)
 
 
+def enhanced_answer_multi_kb(
+    question: str,
+    selected_knowledge_bases: List[str],
+    conversation_context: str = "",
+    verbose: bool = False,
+    k_dense_sum: int = 60,
+    k_dense_full: int = 60,
+    k_sparse: int = 60,
+    per_doc: int = 4,
+    final_k: int = 8,
+    lambda_mmr: float = 0.7,
+    timeout: int = 60,
+    system_override: Optional[str] = None,
+    images_enabled: bool = True,
+    max_images: int = 2,
+    artifacts_dir: str = "artifacts"
+) -> Tuple[str, str, Dict, List[str]]:
+    """Enhanced answer function that searches across multiple knowledge bases."""
+    from pipeline.query import list_available_knowledge_bases
+    
+    # Get all available knowledge bases
+    available_kbs = list_available_knowledge_bases(artifacts_dir)
+    
+    # If no specific KBs selected, use all available
+    if not selected_knowledge_bases:
+        selected_knowledge_bases = [kb['name'] for kb in available_kbs]
+    
+    # Filter to only valid knowledge bases
+    valid_kbs = []
+    for kb_name in selected_knowledge_bases:
+        for kb in available_kbs:
+            if kb['name'] == kb_name:
+                valid_kbs.append(kb)
+                break
+    
+    if not valid_kbs:
+        raise ValueError("No valid knowledge bases found")
+    
+    # If only one KB selected, use the original function
+    if len(valid_kbs) == 1:
+        kb = valid_kbs[0]
+        return enhanced_answer(
+            question=question,
+            embeddings_path=kb['embeddings_path'],
+            conversation_context=conversation_context,
+            verbose=verbose,
+            k_dense_sum=k_dense_sum,
+            k_dense_full=k_dense_full,
+            k_sparse=k_sparse,
+            per_doc=per_doc,
+            final_k=final_k,
+            lambda_mmr=lambda_mmr,
+            timeout=timeout,
+            system_override=system_override,
+            chunked_path=kb.get('chunked_path'),
+            images_enabled=images_enabled,
+            max_images=max_images
+        )
+    
+    # True Multi-KB search: concatenate all knowledge bases into unified corpus
+    if verbose:
+        print(f"🔗 CONCATENATING {len(valid_kbs)} KNOWLEDGE BASES")
+        for kb in valid_kbs:
+            print(f"   - {kb['display_name']} ({kb['name']})")
+    
+    # Load and concatenate all knowledge bases
+    combined_items = []
+    all_image_paths = []
+    kb_source_mapping = {}  # Track which KB each item came from
+    
+    for kb_idx, kb in enumerate(valid_kbs):
+        try:
+            if verbose:
+                print(f"📚 Loading KB: {kb['display_name']}")
+            
+            # Load corpus from this KB
+            from pipeline.query import load_corpus
+            kb_items = load_corpus(kb['embeddings_path'])
+            
+            if verbose:
+                print(f"   Loaded {len(kb_items)} items")
+            
+            # Add KB metadata to each item and track source
+            for item in kb_items:
+                # Add KB source info to metadata
+                if 'metadata' not in item:
+                    item['metadata'] = {}
+                item['metadata']['source_kb'] = kb['name']
+                item['metadata']['source_kb_display'] = kb['display_name']
+                
+                # Track KB source mapping
+                kb_source_mapping[item['id']] = kb['display_name']
+                
+                combined_items.append(item)
+                
+        except Exception as e:
+            print(f"⚠️  Error loading KB {kb['name']}: {e}")
+            continue
+    
+    if not combined_items:
+        raise ValueError("No items found in any knowledge base")
+    
+    if verbose:
+        print(f"🔗 CONCATENATED CORPUS: {len(combined_items)} total items")
+    
+    # Now perform unified search on the concatenated corpus
+    try:
+        # Build indices for the combined corpus
+        from pipeline.query import build_indices, load_query_encoder, encode_query
+        from pipeline.query import dense_search, sparse_search, rrf, per_doc_cap, rerank, mmr_select
+        from pipeline.query import format_citations, build_prompt, call_gemini_via_litellm
+        
+        dense_index_s, dense_index_f, sparse_index = build_indices(combined_items, verbose=verbose)
+        query_encoder = load_query_encoder("BAAI/bge-large-en-v1.5")  # Use default model
+        
+        # Encode query
+        query_summary, query_full = encode_query(question, query_encoder, conversation_context)
+        
+        # Search the concatenated corpus
+        dense_results_s = dense_search(query_summary, dense_index_s, k=k_dense_sum, verbose=verbose)
+        dense_results_f = dense_search(query_full, dense_index_f, k=k_dense_full, verbose=verbose)
+        sparse_results = sparse_search(question, sparse_index, k=k_sparse, verbose=verbose)
+        
+        # Fusion and ranking
+        fused_indices = rrf([dense_results_s, dense_results_f, sparse_results], verbose=verbose)
+        capped_indices = per_doc_cap(fused_indices, combined_items, per_doc, verbose=verbose)
+        
+        # Rerank if we have enough results
+        if len(capped_indices) > final_k:
+            try:
+                reranked_indices = rerank(question, capped_indices, combined_items, verbose=verbose)
+                final_indices = mmr_select(reranked_indices, combined_items, final_k, lambda_mmr, verbose=verbose)
+            except Exception as e:
+                if verbose:
+                    print(f"⚠️  Reranking failed, using MMR on capped results: {e}")
+                final_indices = mmr_select(capped_indices, combined_items, final_k, lambda_mmr, verbose=verbose)
+        else:
+            final_indices = capped_indices[:final_k]
+        
+        # Extract final contexts and build citations
+        final_contexts = [combined_items[i] for i in final_indices]
+        
+        # Group sources by KB for better attribution
+        sources_by_kb = {}
+        for ctx in final_contexts:
+            kb_name = ctx['metadata'].get('source_kb_display', 'Unknown')
+            if kb_name not in sources_by_kb:
+                sources_by_kb[kb_name] = []
+            sources_by_kb[kb_name].append(ctx)
+        
+        # Format citations with KB attribution
+        citations_parts = []
+        for kb_name, kb_contexts in sources_by_kb.items():
+            kb_citations = format_citations(kb_contexts, show_images=images_enabled)
+            if kb_citations.strip():
+                citations_parts.append(f"**From {kb_name}:**\n{kb_citations}")
+        
+        combined_sources_block = "\n\n---\n\n".join(citations_parts)
+        
+        # Extract images from contexts
+        if images_enabled:
+            for ctx in final_contexts:
+                img_paths = ctx.get('metadata', {}).get('image_paths', [])
+                if isinstance(img_paths, list):
+                    all_image_paths.extend(img_paths[:max_images//len(final_contexts)+1])
+        
+        # Limit total images
+        if len(all_image_paths) > max_images:
+            all_image_paths = all_image_paths[:max_images]
+        
+        # Build prompt and generate answer
+        context_text = "\n\n".join([
+            f"Source {i+1}: {ctx.get('full_text', ctx.get('content', ''))}" 
+            for i, ctx in enumerate(final_contexts)
+        ])
+        
+        kb_names = [kb['display_name'] for kb in valid_kbs]
+        enhanced_question = f"Based on information from multiple knowledge bases ({', '.join(kb_names)}): {question}"
+        
+        user_prompt = build_prompt(enhanced_question, context_text, conversation_context)
+        
+        # Generate answer
+        system_prompt = "You are an engineering assistant. Keep your responses relevant and based on the context. Provide as much detail as possible but keep it concise. When asked for tables - reconstruct tables based on retrieved context. IMPORTANT: Never include any citation numbers, brackets like [1], [2], or references to 'Context Document X' in your response. Write naturally without any citation markers - the system will add citations separately. When interpreting OCR text from technical diagrams, be careful about common OCR errors: '2x' may appear as part of adjacent text, 'I2C' may appear as '12C', 'x4' formatting may be inconsistent. Always double-check technical specifications and component counts against the visual context when available."
+        
+        if system_override and system_override.strip():
+            system_prompt = system_override
+        
+        if verbose:
+            print(f"🤖 Generating answer from {len(final_contexts)} contexts across {len(valid_kbs)} KBs")
+        
+        answer_text = call_gemini_via_litellm(system_prompt, user_prompt, timeout=timeout)
+        
+        # Build retrieval info
+        retrieval_info_combined = {
+            'knowledge_bases_used': [kb['display_name'] for kb in valid_kbs],
+            'total_items_searched': len(combined_items),
+            'final_contexts': len(final_contexts),
+            'sources_by_kb': {kb: len(contexts) for kb, contexts in sources_by_kb.items()},
+            'concatenated_search': True
+        }
+        
+        return answer_text, combined_sources_block, retrieval_info_combined, all_image_paths
+        
+    except Exception as e:
+        print(f"❌ Error in concatenated search: {e}")
+        # Fallback to the old separate-search method
+        print("🔄 Falling back to separate KB search method")
+        return enhanced_answer_multi_kb_separate(question, valid_kbs, conversation_context, verbose, k_dense_sum, k_dense_full, k_sparse, per_doc, final_k, lambda_mmr, timeout, system_override, images_enabled, max_images)
+    
+    # Limit images to max_images
+    if len(all_image_paths) > max_images:
+        all_image_paths = all_image_paths[:max_images]
+    
+    return primary_answer, combined_sources_block, retrieval_info_combined, all_image_paths
+
+
+def enhanced_answer_multi_kb_separate(
+    question: str,
+    valid_kbs: List[Dict],
+    conversation_context: str = "",
+    verbose: bool = False,
+    k_dense_sum: int = 60,
+    k_dense_full: int = 60,
+    k_sparse: int = 60,
+    per_doc: int = 4,
+    final_k: int = 8,
+    lambda_mmr: float = 0.7,
+    timeout: int = 60,
+    system_override: Optional[str] = None,
+    images_enabled: bool = True,
+    max_images: int = 2
+) -> Tuple[str, str, Dict, List[str]]:
+    """Fallback method: searches each KB separately and combines results."""
+    
+    # Multi-KB search: collect results from each KB and merge
+    all_results = []
+    all_image_paths = []
+    retrieval_info_combined = {
+        'knowledge_bases': [],
+        'total_results': 0,
+        'final_k': final_k,
+        'concatenated_search': False
+    }
+    
+    # Search each knowledge base
+    for kb in valid_kbs:
+        try:
+            # Reduce final_k per KB to allow fair representation
+            kb_final_k = max(1, final_k // len(valid_kbs))
+            
+            answer_text, sources_block, retrieval_info, image_paths = enhanced_answer(
+                question=question,
+                embeddings_path=kb['embeddings_path'],
+                conversation_context=conversation_context,
+                verbose=verbose,
+                k_dense_sum=k_dense_sum,
+                k_dense_full=k_dense_full,
+                k_sparse=k_sparse,
+                per_doc=per_doc,
+                final_k=kb_final_k,
+                lambda_mmr=lambda_mmr,
+                timeout=timeout,
+                system_override=system_override,
+                chunked_path=kb.get('chunked_path'),
+                images_enabled=images_enabled,
+                max_images=max_images // len(valid_kbs) + 1  # Distribute images across KBs
+            )
+            
+            # Store results with KB context
+            all_results.append({
+                'kb_name': kb['display_name'],
+                'kb_id': kb['name'],
+                'sources_block': sources_block,
+                'retrieval_info': retrieval_info
+            })
+            all_image_paths.extend(image_paths)
+            
+            # Combine retrieval info
+            retrieval_info_combined['knowledge_bases'].append({
+                'name': kb['display_name'],
+                'id': kb['name'],
+                'results_count': len(retrieval_info.get('final_indices', [])),
+                'retrieval_info': retrieval_info
+            })
+            retrieval_info_combined['total_results'] += len(retrieval_info.get('final_indices', []))
+            
+        except Exception as e:
+            print(f"⚠️  Error searching KB {kb['name']}: {e}")
+            continue
+    
+    if not all_results:
+        raise ValueError("No results found from any knowledge base")
+    
+    # Combine sources from all KBs
+    combined_sources = []
+    for result in all_results:
+        if result['sources_block']:
+            combined_sources.append(f"**From {result['kb_name']}:**\n{result['sources_block']}")
+    
+    combined_sources_block = "\n\n---\n\n".join(combined_sources)
+    
+    # Generate unified answer using first KB's approach
+    kb_names = [kb['display_name'] for kb in valid_kbs]
+    if all_results:
+        # Get the first KB's actual answer by re-running with the combined question
+        first_kb = valid_kbs[0]
+        answer_text, _, _, _ = enhanced_answer(
+            question=f"Based on information from multiple knowledge bases ({', '.join(kb_names)}): {question}",
+            embeddings_path=first_kb['embeddings_path'],
+            conversation_context=conversation_context + f"\n\nNote: This query searched across {len(valid_kbs)} knowledge bases.",
+            verbose=verbose,
+            k_dense_sum=k_dense_sum,
+            k_dense_full=k_dense_full,
+            k_sparse=k_sparse,
+            per_doc=per_doc,
+            final_k=final_k,
+            lambda_mmr=lambda_mmr,
+            timeout=timeout,
+            system_override=system_override,
+            chunked_path=first_kb.get('chunked_path'),
+            images_enabled=images_enabled,
+            max_images=max_images
+        )
+    else:
+        answer_text = f"Multi-KB search completed across {len(valid_kbs)} knowledge bases. See sources below for detailed information."
+    
+    # Limit images to max_images
+    if len(all_image_paths) > max_images:
+        all_image_paths = all_image_paths[:max_images]
+    
+    return answer_text, combined_sources_block, retrieval_info_combined, all_image_paths
+
+
 def enhanced_answer(
     question: str,
     embeddings_path: str,
@@ -519,12 +852,15 @@ def enhanced_answer(
     return out, sources_block, retrieval_info, image_paths
 
 
-def print_welcome(session: Optional[ChatSession] = None):
+def print_welcome(session: Optional[ChatSession] = None, kb_name: Optional[str] = None):
     """Print welcome message and instructions."""
     print("\n" + "="*80)
     print("💬 Synapse Interactive Chat")
     print("="*80)
     print("Welcome! Ask questions about your knowledge base.")
+    
+    if kb_name:
+        print(f"🔍 Knowledge Base: {kb_name}")
     
     if session:
         session_name = Path(session.session_file).name
@@ -550,12 +886,16 @@ def print_help():
     print("  /stats        - Show session statistics")
     print("  /sessions     - List all available sessions")
     print("  /new          - Start a new session")
+    print("  /kb           - List available knowledge bases")
+    print("  /switch-kb    - Switch to a different knowledge base")
     print("\n💡 Tips:")
     print("  • Ask follow-up questions - I remember our conversation!")
     print("  • Use /verbose to see detailed retrieval steps")
     print("  • Questions can reference previous answers")
     print("  • Sources are provided for fact verification")
     print("  • Sessions auto-save and auto-continue within 24 hours")
+    print("  • Use /kb to see available knowledge bases")
+    print("  • Use /switch-kb to change knowledge bases mid-conversation")
 
 
 def print_stats(session: ChatSession, items: List[Dict]):
@@ -640,7 +980,7 @@ def start_new_session(default_config: Optional[Dict] = None) -> ChatSession:
     return ChatSession(session_file, auto_continue=False, default_config=default_config)
 
 
-def run_gui(embeddings_path: str, default_timeout: int = 60) -> int:
+def run_gui(embeddings_path: str, default_timeout: int = 60, selected_kb_name: Optional[str] = None) -> int:
     try:
         from flask import Flask, request, jsonify, render_template
     except Exception as exc:
@@ -835,6 +1175,9 @@ def run_gui(embeddings_path: str, default_timeout: int = 60) -> int:
         # Get image settings from request (with fallback to config defaults)
         images_enabled = data.get("images_enabled", True)
         max_images = data.get("max_images", 2)
+        
+        # Get selected knowledge bases from request
+        selected_kbs = data.get("selected_knowledge_bases", [])
 
         # Conversation context for parity with CLI
         conv_ctx = session.get_context(last_n=3)
@@ -842,20 +1185,39 @@ def run_gui(embeddings_path: str, default_timeout: int = 60) -> int:
             # Get current session config
             current_config = session.get_config()
             
-            answer_text, sources_block, retrieval_info, image_paths = enhanced_answer(
-                question=question,
-                embeddings_path=embeddings_path,
-                conversation_context=conv_ctx,
-                verbose=bool(current_config.get("verbose", False)),
-                per_doc=int(current_config.get("per_doc", 8)),
-                final_k=int(current_config.get("topk", 10)),
-                lambda_mmr=float(current_config.get("lambda_mmr", 0.8)),
-                timeout=int(current_config.get("timeout", default_timeout)),
-                system_override=current_config.get("system_prompt"),
-                chunked_path=chunked_path,
-                images_enabled=images_enabled,
-                max_images=max_images,
-            )
+            # Use multi-KB search if knowledge bases are selected, otherwise use single KB
+            if selected_kbs:
+                artifacts_dir = os.path.dirname(embeddings_path)
+                answer_text, sources_block, retrieval_info, image_paths = enhanced_answer_multi_kb(
+                    question=question,
+                    selected_knowledge_bases=selected_kbs,
+                    conversation_context=conv_ctx,
+                    verbose=bool(current_config.get("verbose", False)),
+                    per_doc=int(current_config.get("per_doc", 8)),
+                    final_k=int(current_config.get("topk", 10)),
+                    lambda_mmr=float(current_config.get("lambda_mmr", 0.8)),
+                    timeout=int(current_config.get("timeout", default_timeout)),
+                    system_override=current_config.get("system_prompt"),
+                    images_enabled=images_enabled,
+                    max_images=max_images,
+                    artifacts_dir=artifacts_dir
+                )
+            else:
+                # Fallback to single KB search
+                answer_text, sources_block, retrieval_info, image_paths = enhanced_answer(
+                    question=question,
+                    embeddings_path=embeddings_path,
+                    conversation_context=conv_ctx,
+                    verbose=bool(current_config.get("verbose", False)),
+                    per_doc=int(current_config.get("per_doc", 8)),
+                    final_k=int(current_config.get("topk", 10)),
+                    lambda_mmr=float(current_config.get("lambda_mmr", 0.8)),
+                    timeout=int(current_config.get("timeout", default_timeout)),
+                    system_override=current_config.get("system_prompt"),
+                    chunked_path=chunked_path,
+                    images_enabled=images_enabled,
+                    max_images=max_images,
+                )
         except Exception as e:
             print(f"❌ Error in /api/ask: {e}")
             return jsonify({"ok": False, "error": str(e)}), 500
@@ -940,6 +1302,75 @@ def run_gui(embeddings_path: str, default_timeout: int = 60) -> int:
         data = json.dumps({"history": session_history}, indent=2)
         return Response(data, mimetype='application/json')
 
+    @app.get("/api/knowledge-bases")
+    def list_knowledge_bases():
+        """List available knowledge bases."""
+        try:
+            from pipeline.query import list_available_knowledge_bases
+            artifacts_dir = os.path.dirname(embeddings_path)
+            knowledge_bases = list_available_knowledge_bases(artifacts_dir)
+            
+            # Mark the current knowledge base
+            current_kb = None
+            for kb in knowledge_bases:
+                if kb['embeddings_path'] == embeddings_path:
+                    current_kb = kb['name']
+                    break
+            
+            return jsonify({
+                "knowledge_bases": knowledge_bases,
+                "current_kb": current_kb,
+                "current_kb_name": selected_kb_name
+            })
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.post("/api/switch-kb")
+    def switch_knowledge_base():
+        """Switch to a different knowledge base."""
+        nonlocal embeddings_path, chunked_path, selected_kb_name, items
+        
+        try:
+            data = request.get_json(force=True)
+            kb_name = str(data.get("kb_name", "")).strip()
+            
+            if not kb_name:
+                return jsonify({"ok": False, "error": "Knowledge base name required"}), 400
+            
+            # Find the knowledge base
+            from pipeline.query import list_available_knowledge_bases
+            artifacts_dir = os.path.dirname(embeddings_path)
+            knowledge_bases = list_available_knowledge_bases(artifacts_dir)
+            
+            selected_kb = None
+            for kb in knowledge_bases:
+                if kb['name'] == kb_name:
+                    selected_kb = kb
+                    break
+            
+            if not selected_kb:
+                return jsonify({"ok": False, "error": f"Knowledge base '{kb_name}' not found"}), 404
+            
+            # Switch to the new knowledge base
+            embeddings_path = selected_kb['embeddings_path']
+            chunked_path = selected_kb['chunked_path']
+            selected_kb_name = selected_kb['display_name']
+            
+            # Reload the corpus
+            items = load_corpus(embeddings_path)
+            if not items:
+                return jsonify({"ok": False, "error": "Failed to load new knowledge base"}), 500
+            
+            return jsonify({
+                "ok": True,
+                "message": f"Switched to knowledge base: {selected_kb_name}",
+                "kb_name": selected_kb_name,
+                "chunks_loaded": len(items)
+            })
+            
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 500
+
     app.run(host="127.0.0.1", port=7860, debug=False)
     return 0
 
@@ -953,7 +1384,9 @@ def main() -> int:
         help="Path to embeddings file"
     )
     parser.add_argument("--session", type=str, help="Specific session file for conversation history")
-   
+    parser.add_argument("--kb", type=str, help="Use specific knowledge base by name")
+    parser.add_argument("--select-kb", action="store_true", help="Interactively select knowledge base")
+    parser.add_argument("--list-kb", action="store_true", help="List available knowledge bases and exit")
     parser.add_argument("--new-session", action="store_true", help="Force start a new session")
     parser.add_argument("--verbose", action="store_true", help="Start with verbose retrieval mode enabled")
     parser.add_argument("--timeout", type=int, default=60, help="LLM timeout in seconds")
@@ -966,13 +1399,111 @@ def main() -> int:
         print("❌ Environment variables not set!\nSet LITELLM_API_KEY and LITELLM_BASE_URL")
         return 1
 
-    embeddings_path = os.path.abspath(args.embeddings)
-    if not os.path.exists(embeddings_path):
-        print(f"❌ Embeddings file not found: {embeddings_path}\nRun 'python initialize.py' first.")
-        return 1
+    # Handle knowledge base selection (import here to avoid circular imports)
+    from pipeline.query import list_available_knowledge_bases, interactive_knowledge_base_selector
+    
+    # Handle knowledge base listing
+    if args.list_kb:
+        artifacts_dir = os.path.dirname(os.path.abspath(args.embeddings))
+        knowledge_bases = list_available_knowledge_bases(artifacts_dir)
+        
+        if not knowledge_bases:
+            print("No knowledge bases found. Run folder-based initialization first:")
+            print("  python initialize_folders.py")
+            return 1
+        
+        print("Available Knowledge Bases:")
+        print("=" * 50)
+        for kb in knowledge_bases:
+            size_mb = kb['file_size'] / (1024 * 1024) if kb['file_size'] > 0 else 0
+            chunk_info = f"{kb['chunk_count']:,} chunks" if kb['chunk_count'] > 0 else "unknown chunks"
+            size_info = f"{size_mb:.1f} MB" if size_mb > 0 else "unknown size"
+            
+            print(f"📚 {kb['display_name']} ({kb['name']})")
+            print(f"   📊 {chunk_info}, {size_info}")
+            print(f"   📄 Embeddings: {os.path.basename(kb['embeddings_path'])}")
+            if kb['chunked_path']:
+                print(f"   🧩 Chunks: {os.path.basename(kb['chunked_path'])}")
+            print()
+        
+        print("Usage:")
+        print(f"  python chat.py --kb \"{knowledge_bases[0]['name']}\"")
+        print(f"  python chat.py --select-kb")
+        return 0
+    
+    # Handle knowledge base selection
+    embeddings_path = args.embeddings
+    chunked_path = None
+    selected_kb_name = None
+    
+    # Interactive knowledge base selection
+    if args.select_kb:
+        artifacts_dir = os.path.dirname(os.path.abspath(args.embeddings))
+        selected_kb = interactive_knowledge_base_selector(artifacts_dir)
+        
+        if selected_kb is None:
+            print("Using default knowledge base...")
+        else:
+            args.kb = selected_kb['name']
+    
+    # Handle specific knowledge base selection
+    if args.kb:
+        artifacts_dir = os.path.dirname(os.path.abspath(args.embeddings))
+        knowledge_bases = list_available_knowledge_bases(artifacts_dir)
+        
+        selected_kb = None
+        for kb in knowledge_bases:
+            if kb['name'] == args.kb or kb['display_name'].lower() == args.kb.lower():
+                selected_kb = kb
+                break
+        
+        if not selected_kb:
+            print(f"Knowledge base '{args.kb}' not found. Available options:")
+            for kb in knowledge_bases:
+                print(f"  - {kb['name']} ({kb['display_name']})")
+            return 1
+        
+        embeddings_path = selected_kb['embeddings_path']
+        chunked_path = selected_kb['chunked_path']
+        selected_kb_name = selected_kb['display_name']
+        print(f"🔍 Using knowledge base: {selected_kb_name}")
+        print(f"📄 Embeddings: {os.path.basename(embeddings_path)}")
+        if chunked_path:
+            print(f"🧩 Chunks: {os.path.basename(chunked_path)}")
+        print()
 
+    embeddings_path = os.path.abspath(embeddings_path)
+    # For GUI mode, check if we have any knowledge bases available
     if args.test_gui:
-        return run_gui(embeddings_path, default_timeout=int(args.timeout))
+        artifacts_dir = os.path.dirname(embeddings_path)
+        try:
+            from pipeline.query import list_available_knowledge_bases
+            available_kbs = list_available_knowledge_bases(artifacts_dir)
+            if not available_kbs:
+                print(f"❌ No knowledge bases found in {artifacts_dir}")
+                print("Run 'python initialize_folders.py' first to create knowledge bases.")
+                return 1
+            
+            # Use the first available KB as default, or the specified one
+            default_kb = None
+            if selected_kb_name:
+                for kb in available_kbs:
+                    if kb['name'] == selected_kb_name:
+                        default_kb = kb
+                        break
+            if not default_kb:
+                default_kb = available_kbs[0]  # Use first available
+            
+            print(f"🚀 Starting GUI with default knowledge base: {default_kb['display_name']}")
+            return run_gui(default_kb['embeddings_path'], default_timeout=int(args.timeout), selected_kb_name=default_kb['name'])
+        except Exception as e:
+            print(f"❌ Failed to load knowledge bases: {e}")
+            return 1
+
+    # For CLI mode, check the specific embeddings file
+    if not os.path.exists(embeddings_path):
+        print(f"❌ Embeddings file not found: {embeddings_path}\nRun 'python initialize_folders.py' first.")
+        return 1
 
     # ------------- existing CLI startup -------------
     print("🔄 Loading knowledge base...")
@@ -987,7 +1518,7 @@ def main() -> int:
     auto_continue = not args.new_session
     session = ChatSession(args.session, auto_continue=auto_continue)
     verbose_mode = args.verbose
-    print_welcome(session)
+    print_welcome(session, selected_kb_name)
 
     try:
         while True:
@@ -1019,6 +1550,55 @@ def main() -> int:
                 elif cmd=='stats': items2 = load_corpus(embeddings_path); print_stats(session, items2)
                 elif cmd=='sessions': list_sessions()
                 elif cmd=='new': session = start_new_session(); print("🔄 Switched to new session. Previous context cleared.")
+                elif cmd=='kb':
+                    # List available knowledge bases
+                    artifacts_dir = os.path.dirname(embeddings_path)
+                    knowledge_bases = list_available_knowledge_bases(artifacts_dir)
+                    
+                    if not knowledge_bases:
+                        print("❌ No knowledge bases found. Run initialize_folders.py first.")
+                    else:
+                        print(f"\n📚 Available Knowledge Bases ({len(knowledge_bases)} total):")
+                        current_kb = None
+                        for kb in knowledge_bases:
+                            if kb['embeddings_path'] == embeddings_path:
+                                current_kb = kb
+                                break
+                        
+                        for i, kb in enumerate(knowledge_bases, 1):
+                            is_current = "🔍 " if kb == current_kb else "   "
+                            size_mb = kb['file_size'] / (1024 * 1024) if kb['file_size'] > 0 else 0
+                            chunk_info = f"{kb['chunk_count']:,} chunks" if kb['chunk_count'] > 0 else "unknown chunks"
+                            size_info = f"{size_mb:.1f} MB" if size_mb > 0 else "unknown size"
+                            
+                            print(f"{is_current}{i:2d}. 📁 {kb['display_name']}")
+                            print(f"       📊 {chunk_info}, {size_info}")
+                        print("\n💡 Use /switch-kb to change knowledge base")
+                        
+                elif cmd=='switch-kb':
+                    # Interactive knowledge base switching
+                    artifacts_dir = os.path.dirname(embeddings_path)
+                    selected_kb = interactive_knowledge_base_selector(artifacts_dir)
+                    
+                    if selected_kb is not None:
+                        # Update the embeddings path and reload
+                        embeddings_path = selected_kb['embeddings_path']
+                        chunked_path = selected_kb['chunked_path']
+                        selected_kb_name = selected_kb['display_name']
+                        
+                        print(f"🔄 Loading new knowledge base: {selected_kb_name}")
+                        try:
+                            items = load_corpus(embeddings_path)
+                            if not items:
+                                print("❌ Failed to load new knowledge base")
+                            else:
+                                print(f"✅ Loaded {len(items):,} chunks from {selected_kb_name}")
+                                print("🔄 Knowledge base switched successfully!")
+                        except Exception as e:
+                            print(f"❌ Failed to load new knowledge base: {e}")
+                    else:
+                        print("Knowledge base not changed.")
+                        
                 else:
                     print(f"❓ Unknown command: /{cmd}\nType /help for available commands")
                 continue
@@ -1028,7 +1608,7 @@ def main() -> int:
                 context = session.get_context(last_n=3)
                 answer, sources, retrieval_info, image_paths = enhanced_answer(
                     question=question, embeddings_path=embeddings_path, conversation_context=context,
-                    verbose=verbose_mode, timeout=args.timeout, chunked_path=None,
+                    verbose=verbose_mode, timeout=args.timeout, chunked_path=chunked_path,
                     images_enabled=True, max_images=2)
                 total_time = time.time() - start_time
                 print(f"\n🤖 Assistant ({total_time:.1f}s):\n{answer.strip()}\n\n📚 Sources:\n{sources}")

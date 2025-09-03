@@ -17,6 +17,7 @@ class SynapseApp {
       await this.loadConfig();
       await this.loadSessions();
       await this.loadHistory();
+      await this.loadKnowledgeBases();
       this.setupEventListeners();
       this.setupResizer();
       this.setupTooltips();
@@ -48,6 +49,11 @@ class SynapseApp {
     document.getElementById('clear-chat-btn').addEventListener('click', () => this.clearChat());
     document.getElementById('export-chat-btn').addEventListener('click', () => this.exportChat());
     document.getElementById('refresh-sessions-btn').addEventListener('click', () => this.loadSessions());
+    
+    // Knowledge base management
+    document.getElementById('refresh-kb-btn').addEventListener('click', () => this.loadKnowledgeBases());
+    document.getElementById('select-all-kb-btn').addEventListener('click', () => this.selectAllKnowledgeBases());
+    document.getElementById('deselect-all-kb-btn').addEventListener('click', () => this.deselectAllKnowledgeBases());
     document.getElementById('new-session-btn').addEventListener('click', () => this.newSession());
     document.getElementById('load-session-btn').addEventListener('click', () => this.loadSelectedSession());
     document.getElementById('save-as-default-btn').addEventListener('click', () => this.saveAsDefault());
@@ -426,13 +432,17 @@ class SynapseApp {
       const imagesEnabled = document.getElementById('quick-images-toggle').checked;
       const maxImages = parseInt(document.getElementById('max-images').value, 10) || 2;
       
+      // Get selected knowledge bases
+      const selectedKbs = this.getSelectedKnowledgeBases();
+      
       const response = await fetch('/api/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           question,
           images_enabled: imagesEnabled,
-          max_images: maxImages
+          max_images: maxImages,
+          selected_knowledge_bases: selectedKbs
         })
       });
 
@@ -670,45 +680,43 @@ class SynapseApp {
     this.showNotification(fullMessage, 'error');
   }
 
+  showWarning(message) {
+    this.showNotification(message, 'warning');
+  }
+
   showNotification(message, type = 'info') {
-    // Create a simple toast notification
+    // Create a sophisticated toast notification
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
-    toast.textContent = message;
-    toast.style.cssText = `
-      position: fixed;
-      top: 20px;
-      right: 20px;
-      padding: 12px 16px;
-      border-radius: 8px;
-      color: white;
-      font-weight: 500;
-      z-index: 99999;
-      opacity: 0;
-      transform: translateY(-20px);
-      transition: all 0.3s ease;
-      max-width: 400px;
-      word-wrap: break-word;
-    `;
-
+    
+    // Create icon based on type
+    let icon = '💬';
     switch (type) {
       case 'success':
-        toast.style.background = 'var(--accent-success)';
+        icon = '✅';
         break;
       case 'error':
-        toast.style.background = 'var(--accent-danger)';
+        icon = '❌';
         break;
-      default:
-        toast.style.background = 'var(--accent-primary)';
+      case 'warning':
+        icon = '⚠️';
+        break;
     }
+    
+    toast.innerHTML = `
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="font-size: 16px;">${icon}</span>
+        <span style="flex: 1;">${message}</span>
+      </div>
+    `;
 
     document.body.appendChild(toast);
 
     // Animate in
-    setTimeout(() => {
+    requestAnimationFrame(() => {
       toast.style.opacity = '1';
       toast.style.transform = 'translateY(0)';
-    }, 10);
+    });
 
     // Remove after delay
     setTimeout(() => {
@@ -719,13 +727,147 @@ class SynapseApp {
           toast.parentNode.removeChild(toast);
         }
       }, 300);
-    }, 3000);
+    }, 4000);
   }
 
   escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+  }
+
+  // Knowledge Base Management Methods
+  async loadKnowledgeBases() {
+    const loadingDiv = document.getElementById('kb-loading');
+    const listDiv = document.getElementById('kb-list');
+    const errorDiv = document.getElementById('kb-error');
+    
+    // Show loading state
+    loadingDiv.style.display = 'block';
+    listDiv.style.display = 'none';
+    errorDiv.style.display = 'none';
+    
+    try {
+      const response = await fetch('/api/knowledge-bases');
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to load knowledge bases');
+      }
+      
+      this.renderKnowledgeBases(data.knowledge_bases, data.current_kb_name);
+      
+      // Hide loading, show list
+      loadingDiv.style.display = 'none';
+      listDiv.style.display = 'block';
+      
+    } catch (error) {
+      console.error('Failed to load knowledge bases:', error);
+      loadingDiv.style.display = 'none';
+      errorDiv.style.display = 'block';
+      errorDiv.textContent = `Failed to load knowledge bases: ${error.message}`;
+    }
+  }
+  
+  renderKnowledgeBases(knowledgeBases, currentKbName) {
+    const listDiv = document.getElementById('kb-list');
+    
+    if (!knowledgeBases || knowledgeBases.length === 0) {
+      listDiv.innerHTML = `
+        <div class="small" style="text-align: center; padding: 20px; color: #666;">
+          No knowledge bases found. Run folder-based initialization first.
+        </div>
+      `;
+      this.updateKbStatus();
+      return;
+    }
+    
+    listDiv.innerHTML = knowledgeBases.map(kb => {
+      const isSelected = this.isKnowledgeBaseSelected(kb.name);
+      const isCurrent = kb.name === currentKbName;
+      const sizeInfo = kb.file_size > 0 ? `${(kb.file_size / (1024 * 1024)).toFixed(1)} MB` : 'unknown size';
+      const chunkInfo = kb.chunk_count > 0 ? `${kb.chunk_count.toLocaleString()} chunks` : 'unknown chunks';
+      
+      return `
+        <div class="kb-item" style="display: flex; align-items: flex-start; gap: 8px; padding: 8px; border: 1px solid #e1e5e9; border-radius: 4px; margin-bottom: 8px; ${isCurrent ? 'background-color: rgba(102, 126, 234, 0.1);' : ''}">
+          <input 
+            type="checkbox" 
+            id="kb-${kb.name}" 
+            data-kb-name="${kb.name}"
+            ${isSelected ? 'checked' : ''}
+            onchange="window.synapseApp.onKnowledgeBaseChange()"
+            style="margin-top: 2px;"
+          />
+          <div style="flex: 1; min-width: 0;">
+            <label for="kb-${kb.name}" style="font-weight: 500; cursor: pointer; display: block;">
+              ${isCurrent ? '🔍 ' : ''}${this.escapeHtml(kb.display_name)}
+              ${isCurrent ? '<span style="font-size: 11px; color: #666; font-weight: normal;"> (current)</span>' : ''}
+            </label>
+            <div style="font-size: 11px; color: #666; margin-top: 2px;">
+              ${this.escapeHtml(kb.name)} • ${sizeInfo} • ${chunkInfo}
+            </div>
+            ${kb.description ? `<div style="font-size: 11px; color: #888; margin-top: 2px; font-style: italic;">${this.escapeHtml(kb.description)}</div>` : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
+    
+    this.updateKbStatus();
+  }
+  
+  isKnowledgeBaseSelected(kbName) {
+    // Check if this knowledge base is currently selected
+    const checkbox = document.getElementById(`kb-${kbName}`);
+    if (checkbox) {
+      return checkbox.checked;
+    }
+    
+    // Default: select all knowledge bases on first load
+    return true;
+  }
+  
+  onKnowledgeBaseChange() {
+    this.updateKbStatus();
+  }
+  
+  updateKbStatus() {
+    const statusDiv = document.getElementById('kb-status');
+    const checkboxes = document.querySelectorAll('#kb-list input[type="checkbox"]');
+    const selectedKbs = Array.from(checkboxes).filter(cb => cb.checked);
+    
+    if (selectedKbs.length === 0) {
+      statusDiv.textContent = 'No knowledge bases selected - queries will use default';
+      statusDiv.style.backgroundColor = 'rgba(220, 53, 69, 0.1)';
+      statusDiv.style.color = '#721c24';
+    } else if (selectedKbs.length === 1) {
+      const kbName = selectedKbs[0].dataset.kbName;
+      statusDiv.textContent = `Selected: ${kbName}`;
+      statusDiv.style.backgroundColor = 'rgba(40, 167, 69, 0.1)';
+      statusDiv.style.color = '#155724';
+    } else {
+      statusDiv.textContent = `Selected: ${selectedKbs.length} knowledge bases`;
+      statusDiv.style.backgroundColor = 'rgba(102, 126, 234, 0.1)';
+      statusDiv.style.color = '#1a1e21';
+    }
+  }
+  
+  selectAllKnowledgeBases() {
+    const checkboxes = document.querySelectorAll('#kb-list input[type="checkbox"]');
+    checkboxes.forEach(cb => cb.checked = true);
+    this.updateKbStatus();
+    this.showToast('All knowledge bases selected', 'success');
+  }
+  
+  deselectAllKnowledgeBases() {
+    const checkboxes = document.querySelectorAll('#kb-list input[type="checkbox"]');
+    checkboxes.forEach(cb => cb.checked = false);
+    this.updateKbStatus();
+    this.showToast('All knowledge bases deselected', 'info');
+  }
+  
+  getSelectedKnowledgeBases() {
+    const checkboxes = document.querySelectorAll('#kb-list input[type="checkbox"]:checked');
+    return Array.from(checkboxes).map(cb => cb.dataset.kbName);
   }
 }
 

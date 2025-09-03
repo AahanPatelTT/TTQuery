@@ -988,6 +988,64 @@ def iter_files(root_dir: str) -> Iterator[str]:
             yield os.path.join(dirpath, filename)
 
 
+def get_folder_structure(root_dir: str) -> Dict[str, List[str]]:
+    """Get folder-based organization for embeddings.
+    
+    Returns:
+        Dict mapping folder_key -> list of file paths
+        
+    Rules:
+    - Regular folders: create one embedding per folder
+    - Folders starting with '#': dig deeper, create embedding per subfolder
+    """
+    folder_groups: Dict[str, List[str]] = {}
+    root_path = Path(root_dir)
+    
+    for dirpath, dirnames, filenames in os.walk(root_dir):
+        # Skip hidden directories
+        dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+        
+        current_path = Path(dirpath)
+        relative_path = current_path.relative_to(root_path)
+        
+        # Skip if no files in this directory
+        valid_files = [f for f in filenames if not f.startswith(".")]
+        if not valid_files:
+            continue
+            
+        # Determine folder key based on structure
+        parts = relative_path.parts
+        
+        if len(parts) == 0:
+            # Files in root directory
+            folder_key = "root"
+        elif len(parts) == 1:
+            # First level directories
+            if parts[0].startswith('#'):
+                # Skip - we'll handle subfolders of # directories
+                continue
+            else:
+                folder_key = parts[0]
+        else:
+            # Deeper directories
+            if parts[0].startswith('#'):
+                # For # directories, use the subfolder as the key
+                folder_key = f"{parts[0]}/{parts[1]}"
+            else:
+                # For regular deep directories, use the top-level folder
+                folder_key = parts[0]
+        
+        # Add files to the appropriate group
+        if folder_key not in folder_groups:
+            folder_groups[folder_key] = []
+            
+        for filename in valid_files:
+            full_path = os.path.join(dirpath, filename)
+            folder_groups[folder_key].append(full_path)
+    
+    return folder_groups
+
+
 def parse_file_basic(file_path: str, image_captioner: Optional[Callable[["object"], str]] = None) -> List[ParsedChunk]:
     ext = os.path.splitext(file_path)[1].lower()
     if ext in {".png", ".jpg", ".jpeg", ".tiff", ".bmp"}:
@@ -1135,7 +1193,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         "--output",
         type=str,
         default=os.path.join(default_output_dir, "parsed.jsonl"),
-        help="Output JSONL path",
+        help="Output JSONL path (will be suffixed with folder names for folder-based parsing)",
+    )
+    parser.add_argument(
+        "--folder-based",
+        action="store_true",
+        help="Create separate parsed files for each folder (enables specialized knowledge bases)",
     )
     parser.add_argument(
         "--engine",
@@ -1200,6 +1263,22 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="Enable AI captioning for extracted images (slower, may hit rate limits)"
     )
     parser.add_argument(
+        "--disable-image-deduplication",
+        action="store_true",
+        help="Disable image deduplication (will save all images even if identical)"
+    )
+    parser.add_argument(
+        "--image-similarity-threshold",
+        type=int,
+        default=10,
+        help="Similarity threshold for perceptual image hashing (0-64, lower = more strict). Default: 10"
+    )
+    parser.add_argument(
+        "--fast-image-extraction",
+        action="store_true",
+        help="Enable fast image extraction mode (disables captioning, uses simpler OCR, faster processing)"
+    )
+    parser.add_argument(
         "--no-cache",
         action="store_true",
         help="Disable caching - reparse all files even if they haven't changed",
@@ -1225,16 +1304,8 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     logging.info("Parsing input directory: %s", input_dir)
 
-    # Initialize cache
-    cache_path = args.cache_path or get_cache_path(output_path)
-    cache: Dict[str, CacheEntry] = {} if args.no_cache else load_cache(cache_path)
-    
-    all_chunks: List[ParsedChunk] = []
-    cached_count = 0
-    parsed_count = 0
-    
     # Build optional image captioner
-    image_captioner: Optional[Callable[["object"], str]] = None
+    image_captioner = None
     if args.image_captioning != "off":
         try:
             from transformers import pipeline  # type: ignore
@@ -1250,6 +1321,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             image_captioner = _caption
         except Exception as exc:
             logging.warning("Image captioner unavailable: %s", exc)
+    
     use_unstructured = args.engine == "unstructured"
     uopts = UnstructuredOptions(
         pdf_strategy=args.pdf_strategy,
@@ -1257,30 +1329,84 @@ def main(argv: Optional[List[str]] = None) -> int:
         infer_table_structure=not args.no_infer_tables,
         include_page_breaks=True,
         pdf_tables_as_csv=not args.no_pdf_tables_as_csv,
-        pdf_table_extractor=args.pdf_table_extractor,
     )
+
+    if args.folder_based:
+        # Folder-based parsing: create separate files for each folder
+        folder_groups = get_folder_structure(input_dir)
+        logging.info("Folder-based parsing enabled. Found %d folder groups:", len(folder_groups))
+        for folder_key in sorted(folder_groups.keys()):
+            file_count = len(folder_groups[folder_key])
+            logging.info("  - %s: %d files", folder_key, file_count)
+        
+        return process_folder_based_parsing(
+            folder_groups, args, input_dir, output_path, 
+            use_unstructured, uopts, image_captioner
+        )
+    else:
+        # Original single-file parsing
+        return process_single_file_parsing(
+            input_dir, args, output_path, use_unstructured, uopts, image_captioner
+        )
+
+
+def process_single_file_parsing(
+    input_dir: str, args, output_path: str, use_unstructured: bool, 
+    uopts, image_captioner
+) -> int:
+    """Original single-file parsing logic."""
+    # Initialize cache
+    cache_path = args.cache_path or get_cache_path(output_path)
+    cache: Dict[str, CacheEntry] = {} if args.no_cache else load_cache(cache_path)
+    
+    all_chunks: List[ParsedChunk] = []
+    cached_count = 0
+    parsed_count = 0
+    
+    # Initialize progress tracking
+    all_files = list(iter_files(input_dir))
+    progress_tracker = None
+    if not args.verbose:  # Only show progress bar in non-verbose mode
+        try:
+            from .progress import ProgressTracker
+            progress_tracker = ProgressTracker(len(all_files), "Parsing")
+        except ImportError:
+            pass
+    
     # Initialize image extraction if requested
     all_extracted_images = []
+    pdf_extractor = None
+    pptx_extractor = None
+    image_dedup_cache = None
     if args.extract_images:
         try:
             # Try different import paths for the image extractor
             try:
-                from pipeline.image_extractor import PDFImageExtractor, PPTXImageExtractor, save_image_metadata
+                from pipeline.image_extractor import PDFImageExtractor, PPTXImageExtractor, save_image_metadata, ImageDeduplicationCache
             except ImportError:
                 # If running from the Synapse directory, try relative import
                 pipeline_path = os.path.join(os.path.dirname(__file__))
                 if pipeline_path not in sys.path:
                     sys.path.insert(0, pipeline_path)
-                from image_extractor import PDFImageExtractor, PPTXImageExtractor, save_image_metadata
+                from image_extractor import PDFImageExtractor, PPTXImageExtractor, save_image_metadata, ImageDeduplicationCache
             
-            pdf_extractor = PDFImageExtractor(output_dir=args.images_output_dir, enable_captioning=args.enable_image_captioning)
-            pptx_extractor = PPTXImageExtractor(output_dir=args.images_output_dir, enable_captioning=args.enable_image_captioning)
-            logging.info("Image extraction enabled - will extract images from PDFs and PPTXs")
+            # Create a shared deduplication cache for all files (unless disabled)
+            image_dedup_cache = None if args.disable_image_deduplication else ImageDeduplicationCache(similarity_threshold=args.image_similarity_threshold)
+            
+            pdf_extractor = PDFImageExtractor(output_dir=args.images_output_dir, enable_captioning=args.enable_image_captioning, dedup_cache=image_dedup_cache, fast_mode=args.fast_image_extraction)
+            pptx_extractor = PPTXImageExtractor(output_dir=args.images_output_dir, enable_captioning=args.enable_image_captioning, dedup_cache=image_dedup_cache, fast_mode=args.fast_image_extraction)
+            
+            dedup_status = "with deduplication" if not args.disable_image_deduplication else "without deduplication"
+            logging.info(f"Image extraction enabled {dedup_status} - will extract images from PDFs and PPTXs")
         except ImportError as e:
             logging.warning("Image extraction disabled due to missing dependencies: %s", e)
             args.extract_images = False
 
-    for file_path in iter_files(input_dir):
+    for file_idx, file_path in enumerate(all_files):
+        # Update progress
+        if progress_tracker:
+            progress_tracker.update(file_path, file_idx)
+        
         # Check cache first
         if not args.no_cache and is_file_cached(file_path, cache):
             chunks = get_cached_chunks(file_path, cache)
@@ -1317,6 +1443,10 @@ def main(argv: Optional[List[str]] = None) -> int:
                 logging.debug("Extracted %d images from %s", len(extracted_images), file_path)
         
         all_chunks.extend(chunks)
+    
+    # Finish progress tracking
+    if progress_tracker:
+        progress_tracker.finish()
 
     # Sort for reproducibility (by source then locator-ish via id)
     all_chunks.sort(key=lambda c: (c.source_path, c.id))
@@ -1326,7 +1456,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.extract_images and all_extracted_images:
         metadata_path = os.path.join(os.path.dirname(output_path), "image_metadata.json")
         save_image_metadata(all_extracted_images, metadata_path)
+        
+        # Count unique vs duplicate images
+        unique_images = len([img for img in all_extracted_images if not img.is_duplicate])
+        duplicate_images = len([img for img in all_extracted_images if img.is_duplicate])
+        
         logging.info("Saved metadata for %d extracted images to %s", len(all_extracted_images), metadata_path)
+        logging.info("Image deduplication: %d unique images, %d duplicates avoided", unique_images, duplicate_images)
     
     # Save cache
     if not args.no_cache:
@@ -1380,7 +1516,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.extract_images:
         print(f"🖼️  IMAGE EXTRACTION:")
         if all_extracted_images:
-            print(f"   📷 Total images extracted: {len(all_extracted_images)}")
+            unique_images = len([img for img in all_extracted_images if not img.is_duplicate])
+            duplicate_images = len([img for img in all_extracted_images if img.is_duplicate])
+            
+            print(f"   📷 Total images processed: {len(all_extracted_images)}")
+            print(f"   ✨ Unique images saved: {unique_images}")
+            print(f"   🔗 Duplicate references: {duplicate_images}")
             print(f"   💾 Images saved to: {args.images_output_dir}")
             print(f"   📋 Metadata saved to: {os.path.join(os.path.dirname(output_path), 'image_metadata.json')}")
             
@@ -1393,6 +1534,10 @@ def main(argv: Optional[List[str]] = None) -> int:
             print(f"   📊 Images by type:")
             for img_type, count in sorted(image_types.items()):
                 print(f"      {img_type}: {count}")
+                
+            if duplicate_images > 0:
+                space_saved = duplicate_images  # Rough estimate - each duplicate saves one file
+                print(f"   💡 Deduplication saved ~{space_saved} duplicate files")
         else:
             print(f"   📷 No images extracted (may be none found or extraction failed)")
     else:
@@ -1411,6 +1556,208 @@ def main(argv: Optional[List[str]] = None) -> int:
     print("="*80 + "\n")
     
     logging.info("Parsing completed successfully.")
+    return 0
+
+
+def process_folder_based_parsing(
+    folder_groups: Dict[str, List[str]], args, input_dir: str, 
+    base_output_path: str, use_unstructured: bool, uopts, image_captioner
+) -> int:
+    """Process files with folder-based organization, creating separate artifacts per folder."""
+    
+    # Initialize progress tracking for folder-based parsing
+    total_files = sum(len(files) for files in folder_groups.values())
+    progress_tracker = None
+    if not args.verbose:  # Only show progress bar in non-verbose mode
+        try:
+            from .progress import ProgressTracker
+            progress_tracker = ProgressTracker(total_files, "Parsing (folder-based)")
+        except ImportError:
+            pass
+    
+    # Initialize image extraction if requested
+    pdf_extractor = None
+    pptx_extractor = None
+    image_dedup_cache = None
+    if args.extract_images:
+        try:
+            # Try different import paths for the image extractor
+            try:
+                from pipeline.image_extractor import PDFImageExtractor, PPTXImageExtractor, save_image_metadata, ImageDeduplicationCache
+            except ImportError:
+                # If running from the Synapse directory, try relative import
+                pipeline_path = os.path.join(os.path.dirname(__file__))
+                if pipeline_path not in sys.path:
+                    sys.path.insert(0, pipeline_path)
+                from image_extractor import PDFImageExtractor, PPTXImageExtractor, save_image_metadata, ImageDeduplicationCache
+            
+            # Create a shared deduplication cache for all files across all folders (unless disabled)
+            image_dedup_cache = None if args.disable_image_deduplication else ImageDeduplicationCache(similarity_threshold=args.image_similarity_threshold)
+            
+            pdf_extractor = PDFImageExtractor(output_dir=args.images_output_dir, enable_captioning=args.enable_image_captioning, dedup_cache=image_dedup_cache, fast_mode=args.fast_image_extraction)
+            pptx_extractor = PPTXImageExtractor(output_dir=args.images_output_dir, enable_captioning=args.enable_image_captioning, dedup_cache=image_dedup_cache, fast_mode=args.fast_image_extraction)
+            
+            dedup_status = "with deduplication" if not args.disable_image_deduplication else "without deduplication"
+            logging.info(f"Image extraction enabled {dedup_status} - will extract images from PDFs and PPTXs")
+        except ImportError as e:
+            logging.warning("Image extraction disabled due to missing dependencies: %s", e)
+            args.extract_images = False
+    
+    total_chunks = 0
+    total_cached = 0
+    total_parsed = 0
+    all_folder_summaries = []
+    
+    # Process each folder group
+    for folder_key, file_paths in folder_groups.items():
+        logging.info("Processing folder: %s (%d files)", folder_key, len(file_paths))
+        
+        # Create folder-specific output path
+        safe_folder_name = folder_key.replace('/', '_').replace('#', 'hash_')
+        folder_output_path = base_output_path.replace('.jsonl', f'_{safe_folder_name}.jsonl')
+        
+        # Create folder-specific cache
+        cache_path = args.cache_path or get_cache_path(folder_output_path)
+        cache: Dict[str, CacheEntry] = {} if args.no_cache else load_cache(cache_path)
+        
+        folder_chunks: List[ParsedChunk] = []
+        folder_extracted_images = []
+        cached_count = 0
+        parsed_count = 0
+        
+        # Process files in this folder
+        for file_path in file_paths:
+            # Update progress
+            if progress_tracker:
+                progress_tracker.update(f"{folder_key}: {os.path.basename(file_path)}")
+            
+            # Check cache first
+            if not args.no_cache and is_file_cached(file_path, cache):
+                chunks = get_cached_chunks(file_path, cache)
+                cached_count += 1
+                logging.debug("Using cached %d chunks from %s", len(chunks), file_path)
+            else:
+                # Parse the file
+                chunks: List[ParsedChunk]
+                if use_unstructured:
+                    chunks = parse_file_unstructured(file_path, uopts, image_captioner=image_captioner)
+                    # If unstructured fails or yields nothing, fallback to basic for resilience
+                    if not chunks:
+                        chunks = parse_file_basic(file_path, image_captioner=image_captioner)
+                else:
+                    chunks = parse_file_basic(file_path, image_captioner=image_captioner)
+                
+                parsed_count += 1
+                if chunks:
+                    logging.debug("Parsed %d chunks from %s", len(chunks), file_path)
+                    # Add to cache if caching is enabled
+                    if not args.no_cache:
+                        add_to_cache(file_path, chunks, cache)
+            
+            # Extract images if requested
+            if args.extract_images:
+                extracted_images = extract_images_from_file(
+                    file_path, pdf_extractor, pptx_extractor, chunks
+                )
+                if extracted_images:
+                    folder_extracted_images.extend(extracted_images)
+                    # Convert extracted images to ParsedChunk objects and add to chunks
+                    image_chunks = convert_images_to_chunks(extracted_images)
+                    chunks.extend(image_chunks)
+                    logging.debug("Extracted %d images from %s", len(extracted_images), file_path)
+            
+            folder_chunks.extend(chunks)
+        
+        # Sort and write folder chunks
+        folder_chunks.sort(key=lambda c: (c.source_path, c.id))
+        write_jsonl(folder_chunks, folder_output_path)
+        
+        # Save folder-specific image metadata
+        if args.extract_images and folder_extracted_images:
+            metadata_path = os.path.join(os.path.dirname(folder_output_path), f"image_metadata_{safe_folder_name}.json")
+            save_image_metadata(folder_extracted_images, metadata_path)
+            logging.info("Saved metadata for %d extracted images to %s", len(folder_extracted_images), metadata_path)
+        
+        # Save folder cache
+        if not args.no_cache:
+            save_cache(cache, cache_path)
+        
+        # Track folder summary
+        folder_summary = {
+            'folder_key': folder_key,
+            'safe_name': safe_folder_name,
+            'output_path': folder_output_path,
+            'chunks': len(folder_chunks),
+            'files_parsed': parsed_count,
+            'files_cached': cached_count,
+            'images_extracted': len(folder_extracted_images) if folder_extracted_images else 0
+        }
+        all_folder_summaries.append(folder_summary)
+        
+        total_chunks += len(folder_chunks)
+        total_cached += cached_count
+        total_parsed += parsed_count
+        
+        logging.info("Completed folder %s: %d chunks, %d files", folder_key, len(folder_chunks), len(file_paths))
+    
+    # Finish progress tracking
+    if progress_tracker:
+        progress_tracker.finish()
+    
+    # Print comprehensive summary
+    print("\n" + "="*80)
+    print("██████╗  █████╗ ██████╗ ███████╗██╗███╗   ██╗ ██████╗ ")
+    print("██╔══██╗██╔══██╗██╔══██╗██╔════╝██║████╗  ██║██╔════╝ ")
+    print("██████╔╝███████║██████╔╝███████╗██║██╔██╗ ██║██║  ███╗")
+    print("██╔═══╝ ██╔══██║██╔══██╗╚════██║██║██║╚██╗██║██║   ██║")
+    print("██║     ██║  ██║██║  ██║███████║██║██║ ╚████║╚██████╔╝")
+    print("╚═╝     ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚═╝╚═╝  ╚═══╝ ╚═════╝ ")
+    print("                    ███████╗██╗   ██╗███╗   ███╗███╗   ███╗ █████╗ ██████╗ ██╗   ██╗")
+    print("                    ██╔════╝██║   ██║████╗ ████║████╗ ████║██╔══██╗██╔══██╗╚██╗ ██╔╝")
+    print("                    ███████╗██║   ██║██╔████╔██║██╔████╔██║███████║██████╔╝ ╚████╔╝ ")
+    print("                    ╚════██║██║   ██║██║╚██╔╝██║██║╚██╔╝██║██╔══██║██╔══██╗  ╚██╔╝  ")
+    print("                    ███████║╚██████╔╝██║ ╚═╝ ██║██║ ╚═╝ ██║██║  ██║██║  ██║   ██║   ")
+    print("                    ╚══════╝ ╚═════╝ ╚═╝     ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ")
+    print("="*80)
+    print("🗂️  FOLDER-BASED PARSING COMPLETED")
+    print("="*80)
+    print(f"📁 INPUT DIRECTORY: {input_dir}")
+    print(f"🔢 TOTAL CHUNKS: {total_chunks:,}")
+    print(f"📂 FOLDERS PROCESSED: {len(all_folder_summaries)}")
+    
+    # Cache statistics
+    total_files = total_parsed + total_cached
+    if not args.no_cache and total_files > 0:
+        print(f"⚡ CACHE STATISTICS:")
+        print(f"   🔄 Files parsed: {total_parsed}")
+        print(f"   💾 Files from cache: {total_cached}")
+        print(f"   📈 Cache hit rate: {total_cached/total_files*100:.1f}%")
+    elif args.no_cache:
+        print(f"🚫 CACHING DISABLED - All {total_files} files were parsed")
+    
+    # Detailed folder breakdown
+    print(f"📊 FOLDER BREAKDOWN:")
+    for summary in sorted(all_folder_summaries, key=lambda x: x['chunks'], reverse=True):
+        print(f"   📁 {summary['folder_key']}: {summary['chunks']:,} chunks ({summary['files_parsed'] + summary['files_cached']} files)")
+        print(f"      📄 Output: {os.path.basename(summary['output_path'])}")
+        if summary['images_extracted'] > 0:
+            print(f"      🖼️  Images: {summary['images_extracted']}")
+    
+    # Show next steps
+    print(f"🚀 NEXT STEPS:")
+    print(f"   Run chunking and embedding for each folder:")
+    for summary in all_folder_summaries:
+        chunk_output = summary['output_path'].replace('parsed_', 'chunked_')
+        embed_output = summary['output_path'].replace('parsed_', 'embedded_').replace('.jsonl', '.npz')
+        print(f"   python pipeline/chunk.py --input \"{summary['output_path']}\" --output \"{chunk_output}\"")
+        print(f"   python pipeline/embed.py --input \"{chunk_output}\" --output \"{embed_output}\"")
+    
+    print("="*80)
+    print("✅ FOLDER-BASED PARSING COMPLETED SUCCESSFULLY!")
+    print("="*80 + "\n")
+    
+    logging.info("Folder-based parsing completed successfully. Processed %d folders with %d total chunks.", 
+                len(all_folder_summaries), total_chunks)
     return 0
 
 

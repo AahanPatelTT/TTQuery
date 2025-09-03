@@ -180,12 +180,32 @@
                     </div>
                 </div>
 
-                <!-- Knowledge Base Info -->
+                <!-- Knowledge Base Selection -->
                 <div class="section">
-                    <div class="section-header">Knowledge Base</div>
-                    <div class="small">
-                        <strong>Embeddings:</strong><br>
-                        <code style="word-break: break-all;">{{ embeddings_path }}</code>
+                    <div class="section-header">
+                        Knowledge Base Selection
+                        <span class="help-icon">?
+                            <div class="tooltip">Select which knowledge bases to search. You can select multiple knowledge bases to search across them simultaneously</div>
+                        </span>
+                    </div>
+                    <div id="kb-selection-container" style="max-height: 200px; overflow-y: auto;">
+                        <div id="kb-loading" class="small" style="text-align: center; padding: 20px; color: #666;">
+                            Loading knowledge bases...
+                        </div>
+                        <div id="kb-list" style="display: none;">
+                            <!-- Knowledge base checkboxes will be populated here -->
+                        </div>
+                        <div id="kb-error" style="display: none;" class="small" style="color: #dc3545; padding: 8px;">
+                            Failed to load knowledge bases
+                        </div>
+                    </div>
+                    <div class="row" style="margin-top: 12px; gap: 8px;">
+                        <button id="refresh-kb-btn" title="Refresh knowledge base list">🔄 Refresh</button>
+                        <button id="select-all-kb-btn" title="Select all knowledge bases">✅ Select All</button>
+                        <button id="deselect-all-kb-btn" title="Deselect all knowledge bases">❌ Clear All</button>
+                    </div>
+                    <div id="kb-status" class="small" style="margin-top: 8px; padding: 6px; background: rgba(102, 126, 234, 0.1); border-radius: 4px; font-size: 12px;">
+                        No knowledge bases selected
                     </div>
                 </div>
             </div>

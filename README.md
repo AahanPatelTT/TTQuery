@@ -28,10 +28,20 @@ Synapse is a complete RAG (Retrieval-Augmented Generation) system that transform
 
 ### **🖼️ Visual Content Processing** ⭐ **NEW**
 - **Image Extraction**: Automatically extracts diagrams, charts, and illustrations from PDFs and PPTXs
+- **Image Deduplication**: Intelligent duplicate detection prevents saving the same image multiple times
 - **Rich Image Metadata**: OCR text, document context, technical keywords, and categorization
 - **Smart Image Retrieval**: Returns relevant diagrams when queries reference visual content
 - **Visual Citation**: Full image paths provided for viewing extracted diagrams
 - **Technical Diagram Understanding**: Specialized processing for block diagrams, flowcharts, and technical illustrations
+
+### **📚 Multi-Knowledge Base System** ⭐ **NEW**
+- **Specialized Knowledge Bases**: Each folder becomes a focused knowledge base
+- **Multi-KB Selection**: Select multiple knowledge bases simultaneously (GUI checkboxes)
+- **Interactive Switching**: Change knowledge bases mid-conversation (CLI commands)
+- **Cross-KB Search**: Search across selected knowledge bases with unified results
+- **Smart Result Fusion**: Intelligently combines and attributes results from multiple sources
+- **Domain-Specific Filtering**: Focus on specific knowledge domains or search comprehensively
+- **Cross-Folder Deduplication**: Images deduplicated across all folders for efficiency
 
 ## 🎯 **Quick Start**
 
@@ -77,11 +87,14 @@ source ~/.zshrc
 Add desired files in a simple (.csv/.md) or regular formats like .pdf, .pptx, .docx etc. These files will processed to construct the knowledge base.
 
 ```bash
-# Automated pipeline: Parse → Chunk → Embed
+# Single knowledge base (traditional approach)
 python initialize.py
 
+# Folder-based knowledge bases (recommended for multiple domains)
+python initialize_folders.py
+
 # Advanced options
-python initialize.py --provider openai --verbose --force-reprocess
+python initialize_folders.py --provider openai --verbose --force-reprocess
 ```
 
 The initialization script:
@@ -96,6 +109,10 @@ The initialization script:
 ```bash
 # Launch interactive CLI chat interface
 python chat.py
+
+# With specific knowledge base selection
+python chat.py --kb "Aahan_s_Notes"
+python chat.py --select-kb
 
 # With session persistence and verbose mode
 python chat.py --verbose --session research_session.json
@@ -155,6 +172,8 @@ python chat.py --session sessions/chat_session_20241215_143022.json
 | `/new` | Start a new session (clears current context) |
 | `/stats` | Display session and knowledge base statistics |
 | `/export <file>` | Export conversation to JSON |
+| `/kb` | List available knowledge bases ⭐ **NEW** |
+| `/switch-kb` | Switch to different knowledge base ⭐ **NEW** |
 | `/quit` | Exit chat interface |
 
 ### **Verbose Mode Example**
@@ -196,37 +215,47 @@ python initialize.py --verbose          # Detailed output for debugging
 If you prefer step-by-step control:
 
 ```bash
-# 1. Parse documents with image extraction
+# Option 1: Single knowledge base (traditional)
+# 1. Parse documents with image extraction and deduplication
 python pipeline/parse.py \
   --input "Data/" \
   --output "artifacts/parsed.jsonl" \
   --extract-images \
   --verbose
 
+# Option 2: Folder-based knowledge bases (recommended)
+# 1. Parse with folder-based organization
+python pipeline/parse.py \
+  --input "Data/" \
+  --output "artifacts/parsed.jsonl" \
+  --folder-based \
+  --extract-images \
+  --verbose
+
 # For high-quality OCR processing (slower):
-# python pipeline/parse.py --engine unstructured --input "Data/" --output "artifacts/parsed.jsonl" --extract-images
+# python pipeline/parse.py --engine unstructured --folder-based --extract-images --input "Data/"
 
-# With AI image captioning (slower, may hit rate limits):
-# python pipeline/parse.py --input "Data/" --output "artifacts/parsed.jsonl" --extract-images --enable-image-captioning
+# Disable deduplication if needed:
+# python pipeline/parse.py --folder-based --extract-images --disable-image-deduplication --input "Data/"
 
-# 2. Create chunks  
-python pipeline/chunk.py \
-  --input "artifacts/parsed.jsonl" \
-  --output "artifacts/chunked.jsonl" \
-  --target-tokens 300 --overlap 0.12 --verbose
+# 2. Create chunks (folder-based automatically processes all parsed files)
+python pipeline/chunk.py --folder-based --verbose
 
-# 3. Generate embeddings
-python pipeline/embed.py \
-  --input "artifacts/chunked.jsonl" \
-  --output "artifacts/embeddings.jsonl" \
-  --provider local --verbose
+# 3. Generate embeddings (folder-based creates separate embeddings per folder)
+python pipeline/embed.py --folder-based --provider local --verbose
 
-# 4. Single query with image support (without chat interface)
+# 4. Query specific knowledge bases
 python pipeline/query.py \
-  --question "What is the Ascalon cluster architecture?" \
-  --embeddings "artifacts/embeddings.jsonl" \
-  --chunked "artifacts/chunked.jsonl" \
-  --topk 10 --timeout 60
+  --list-kb  # List available knowledge bases
+
+python pipeline/query.py \
+  --kb "Aahan_s_Notes" \
+  --question "What is RISC-V?" \
+  --topk 10
+
+python pipeline/query.py \
+  --select-kb \
+  --question "What are the timing constraints?"
 ```
 
 ## 🧠 **System Architecture**
@@ -235,15 +264,17 @@ python pipeline/query.py \
 ```
 📁 Documents (PDF, PPTX, MD, CSV, Images)
     ↓
-🔍 Parse (fast basic engine by default; optional unstructured.io + OCR)
+🔍 Parse (folder-based or single; basic/unstructured engines)
     ↓
-🖼️  Extract Images (diagrams + OCR + metadata; optional AI captioning)
+🖼️  Extract Images (deduplication + OCR + metadata; optional AI captioning)
     ↓
-✂️  Chunk (heading-aware + token-targeted + overlap; slides atomic + windowed)
+✂️  Chunk (folder-based; heading-aware + token-targeted; slides atomic + windowed)
     ↓  
-🧠 Embed (multi-vector: summary + full-content + image descriptions)
+🧠 Embed (folder-based; multi-vector per knowledge base)
     ↓
-💬 Chat Interface
+📚 Knowledge Base Selection (interactive or programmatic)
+    ↓
+💬 Chat Interface (CLI/GUI with KB switching)
     ↓
 🔍 Retrieve (dense + sparse + RRF + rerank + MMR + doc-coherence + images)
     ↓
@@ -299,6 +330,8 @@ python pipeline/parse.py --cache-path "custom/cache.pkl"
 | **Real-time Parameter Tuning** | ❌ | ✅ |
 | **Visual Feedback** | Text-based | ✅ Modern UI |
 | **Export Options** | JSON | ✅ JSON + UI |
+| **Knowledge Base Selection** | Commands | ✅ Checkboxes |
+| **Multi-KB Search** | ❌ | ✅ Cross-KB Results |
 | **Session Configs** | ❌ | ✅ |
 | **Default Configs** | ❌ | ✅ |
 
@@ -314,6 +347,7 @@ python pipeline/parse.py --cache-path "custom/cache.pkl"
 ### **Image Processing Outputs** ⭐ **NEW**
 - `artifacts/extracted_images/`: Individual image files (PNG format) with descriptive filenames
 - `artifacts/image_metadata.json`: Rich metadata for all extracted images including OCR text, document context, and technical keywords
+- **Deduplication**: Only unique images saved; duplicates create references to originals
 
 ### **Session Files**
 - `sessions/`: Conversation history with retrieval metadata (CLI & GUI compatible)
@@ -346,4 +380,10 @@ python pipeline/parse.py --cache-path "custom/cache.pkl"
 - **Missing images**: Re-run parsing with `--extract-images` flag to extract diagrams from PDFs/PPTXs
 - **Rate limiting errors**: Disable AI captioning with `--extract-images` (without `--enable-image-captioning`)
 - **No relevant images**: Images are only returned when contextually relevant to your query
+- **Duplicate images**: Use `--disable-image-deduplication` if you need all images saved separately
 - **Dependencies**: Install `PyMuPDF` and `python-pptx` for image extraction: `pip install PyMuPDF python-pptx`
+
+### **Knowledge Base Selection** ⭐ **NEW**
+- **No knowledge bases found**: Run `python initialize_folders.py` to create folder-based knowledge bases
+- **Wrong knowledge base**: Use `python chat.py --list-kb` to see available options
+- **Switching knowledge bases**: Use `/switch-kb` command in chat or restart with `--kb` flag

@@ -26,6 +26,8 @@ Synapse provides two primary interfaces:
    - Default engine is unstructured.io for high‑fidelity parsing. A lightweight basic engine exists for resilience.
    - **PPTX native tables**: Extracts real PowerPoint tables (via `python-pptx`) per slide and serializes as CSV with `metadata.content_format="csv"`, `slide_number`, and `table_index`.
    - **Image extraction** ⭐ **NEW**: Extracts diagrams, charts, and technical illustrations from PDFs and PPTXs with rich metadata including OCR text, document context, and AI captions (optional).
+   - **Image deduplication** ⭐ **NEW**: Content-based duplicate detection prevents saving the same image multiple times across documents.
+   - **Folder-based processing** ⭐ **NEW**: Creates specialized knowledge bases per folder for domain-specific retrieval.
    - **Caching**: Tracks file modification times and sizes. Only reparses changed files.
 
 2. Chunk (parsed.jsonl → chunked.jsonl) **[Cached]**
@@ -47,6 +49,8 @@ Synapse provides two primary interfaces:
    - **Session persistence**: Save/load conversation history to JSON files
    - **Interactive commands**: `/help`, `/verbose`, `/clear`, `/history`, `/stats`, `/export`
    - **Verbose mode**: Detailed retrieval and ranking step visualization
+   - **Multi-KB selection**: Choose multiple knowledge bases via GUI checkboxes ⭐ **NEW**
+   - **Cross-KB search**: Unified results from multiple knowledge sources ⭐ **NEW**
 
 5. Retrieve + Generate **[Enhanced]**
    - **Hybrid recall** (dense + sparse):
@@ -382,6 +386,93 @@ Keep this document updated as new features are added, especially:
 - **Visual content processing improvements and new image formats** ⭐ **NEW**
 - Performance optimizations and caching improvements
 - User experience enhancements and automation features
+
+## 🆕 **New Features (Latest Updates)**
+
+### **📚 Folder-Based Knowledge Bases**
+Synapse now supports creating specialized knowledge bases for each folder in your Data directory:
+
+**Benefits:**
+- **Domain-specific retrieval**: Query only relevant documents for your topic
+- **Reduced noise**: Avoid irrelevant results from other domains
+- **Better performance**: Smaller knowledge bases = faster search
+- **Specialized expertise**: Each knowledge base focuses on its content area
+
+**Usage:**
+```bash
+# Create folder-based knowledge bases
+python initialize_folders.py
+
+# List available knowledge bases
+python chat.py --list-kb
+python pipeline/query.py --list-kb
+
+# Use specific knowledge base
+python chat.py --kb "Aahan_s_Notes"
+python pipeline/query.py --kb "hash_Confluence_IPS" --question "IPS requirements"
+
+# Interactive selection
+python chat.py --select-kb
+python pipeline/query.py --select-kb --question "Your question"
+```
+
+**Knowledge Base Naming:**
+- Regular folders: `Aahan_s_Notes`, `Ascalon_Docs`
+- Folders with `#` prefix: `hash_Confluence_IPS`, `hash_Confluence_PSE`
+- Display names: `Aahan's Notes`, `#Confluence/IPS`
+
+### **🖼️ Image Deduplication System**
+Intelligent duplicate detection prevents saving the same image multiple times:
+
+**How It Works:**
+1. **Content-based hashing**: Images normalized (RGB, 512x512) and hashed
+2. **Cross-document detection**: Works across all files and folders
+3. **Smart references**: Duplicates point to original files instead of creating copies
+4. **Metadata preservation**: OCR text, captions, and context preserved for all references
+
+**Benefits:**
+- **Storage savings**: Can reduce image storage by 50%+ for documents with repeated diagrams
+- **Faster processing**: Duplicates skip expensive OCR and captioning
+- **Cleaner organization**: No redundant files cluttering the output directory
+- **Maintained searchability**: All image references remain fully searchable
+
+**Configuration:**
+```bash
+# Default: deduplication enabled
+python initialize_folders.py --extract-images
+
+# Disable deduplication if needed
+python initialize_folders.py --extract-images --disable-image-deduplication
+```
+
+**Deduplication Statistics Example:**
+```
+🖼️  IMAGE EXTRACTION:
+   📷 Total images processed: 150
+   ✨ Unique images saved: 95
+   🔗 Duplicate references: 55
+   💡 Deduplication saved ~55 duplicate files
+```
+
+### **🔄 Dynamic Knowledge Base Management**
+
+**CLI Commands:**
+- `/kb` - List available knowledge bases with current selection
+- `/switch-kb` - Interactively switch to a different knowledge base
+
+**Web GUI Multi-KB Selector** ⭐ **NEW**
+- **Checkbox interface**: Select multiple knowledge bases simultaneously
+- **Real-time status**: Visual indicators for selected KBs
+- **Control buttons**: Select All, Clear All, Refresh options
+- **Cross-KB search**: Query multiple knowledge bases with unified results
+- **Smart result fusion**: Intelligently combines results from different sources
+- **Source attribution**: Clear indication of which KB provided each result
+
+**Technical Implementation:**
+- `enhanced_answer_multi_kb()` function handles multi-KB queries
+- Results distributed fairly across selected knowledge bases
+- Automatic fallback to single-KB optimization when only one KB selected
+- Combined source blocks with clear KB attribution
 
 ### **Security Notes**
 - Do not commit real API keys. Use environment variables for `LITELLM_API_KEY` and `LITELLM_BASE_URL`

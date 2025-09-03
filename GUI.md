@@ -121,6 +121,41 @@ sessions/
 }
 ```
 
+## 📚 **Knowledge Base Selection** ⭐ **NEW**
+
+The GUI provides an intuitive interface for selecting which knowledge bases to search:
+
+### **Multi-KB Selector**
+- **Checkbox Interface**: Select one or multiple knowledge bases simultaneously
+- **Visual Indicators**: Current KB highlighted, selection status clearly shown
+- **Real-time Status**: Dynamic status updates showing selected KBs
+- **KB Information**: Each KB shows size, chunk count, and description
+
+### **Control Options**
+- **🔄 Refresh**: Reload the knowledge base list
+- **✅ Select All**: Check all available knowledge bases
+- **❌ Clear All**: Deselect all knowledge bases
+- **Status Display**: Shows number of selected KBs with color coding
+
+### **Search Behavior**
+- **Single KB**: Optimized single-knowledge-base search
+- **Multiple KBs**: Cross-KB search with unified results
+- **Source Attribution**: Results clearly indicate which KB provided each source
+- **Fair Distribution**: Results distributed evenly across selected KBs
+
+### **Example Usage**
+1. **Domain-Specific Search**: Select only "Technical_Specs" KB for hardware questions
+2. **Comprehensive Search**: Select all KBs for broad research queries
+3. **Comparative Analysis**: Select specific KBs to compare information across domains
+
+```
+Selected: 3 knowledge bases
+✅ Technical_Specs (1,234 chunks, 15.2 MB)
+✅ User_Manuals (856 chunks, 8.7 MB) 
+✅ Research_Papers (2,341 chunks, 28.1 MB)
+❌ Meeting_Notes (445 chunks, 3.2 MB)
+```
+
 ## 💬 **Chat Interface**
 
 ### **Message Rendering**

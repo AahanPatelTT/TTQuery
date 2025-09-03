@@ -514,8 +514,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Compute multi-vector embeddings (summary + full) for chunks")
     default_input = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "artifacts", "chunked.jsonl"))
     default_output = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "artifacts", "embeddings.jsonl"))
-    parser.add_argument("--input", type=str, default=default_input, help="Input chunked JSONL path")
-    parser.add_argument("--output", type=str, default=default_output, help="Output embeddings JSONL path")
+    parser.add_argument("--input", type=str, default=default_input, help="Input chunked JSONL path (or pattern for folder-based)")
+    parser.add_argument("--output", type=str, default=default_output, help="Output embeddings path (or base path for folder-based)")
+    parser.add_argument("--folder-based", action="store_true", help="Process multiple folder-based chunked files")
     parser.add_argument("--provider", type=str, choices=["local", "openai", "colbert", "bert"], default="local", help="Embedding provider")
     parser.add_argument("--embed-model", type=str, default="BAAI/bge-large-en-v1.5", help="Local model or OpenAI model name")
     parser.add_argument("--summary-mode", type=str, choices=["heuristic", "llm"], default="heuristic", help="How to produce summary text")
@@ -539,6 +540,14 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
+    if args.folder_based:
+        return process_folder_based_embedding(args)
+    else:
+        return process_single_file_embedding(args)
+
+
+def process_single_file_embedding(args) -> int:
+    """Original single-file embedding logic."""
     input_path = os.path.abspath(args.input)
     output_path = os.path.abspath(args.output)
     if not os.path.isfile(input_path):
@@ -591,6 +600,17 @@ def main(argv: Optional[List[str]] = None) -> int:
     chunks = list(read_jsonl(input_path))
     if not chunks:
         logging.warning("No chunks found in input.")
+    
+    # Initialize progress tracking
+    progress_tracker = None
+    if not args.verbose:  # Only show progress bar in non-verbose mode
+        try:
+            from .progress import ProgressTracker
+            # Count batches for progress tracking (64 chunks per batch)
+            num_batches = (len(chunks) + 63) // 64
+            progress_tracker = ProgressTracker(num_batches, "Embedding")
+        except ImportError:
+            pass
 
     # Build page index for image context augmentation
     page_index = build_page_index(chunks)
@@ -613,6 +633,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     batch_summary: List[str] = []
     batch_full: List[str] = []
     batch_meta: List[Dict[str, object]] = []
+    batch_count = 0
 
     for ch in chunks:
         full_text = build_full_text(ch, page_index)
@@ -639,6 +660,11 @@ def main(argv: Optional[List[str]] = None) -> int:
 
         # Flush in moderate batches for memory safety
         if len(batch_meta) >= 64:
+            batch_count += 1
+            # Update progress
+            if progress_tracker:
+                progress_tracker.update(f"Batch {batch_count}: Processing {len(batch_meta)} chunks")
+            
             if args.provider == "colbert":
                 # Native multi-vector per token + pooled vectors for compatibility
                 emb_sum_mv = embedder.embed_token_vectors(batch_summary)  # type: ignore[attr-defined]
@@ -658,6 +684,11 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     # Flush remaining
     if batch_meta:
+        batch_count += 1
+        # Update progress for final batch
+        if progress_tracker:
+            progress_tracker.update(f"Final batch: Processing {len(batch_meta)} chunks")
+        
         if args.provider == "colbert":
             emb_sum_mv = embedder.embed_token_vectors(batch_summary)  # type: ignore[attr-defined]
             emb_full_mv = embedder.embed_token_vectors(batch_full)  # type: ignore[attr-defined]
@@ -672,6 +703,10 @@ def main(argv: Optional[List[str]] = None) -> int:
                 outputs.append({**meta, "embedding_summary": v_s, "embedding_full": v_f})
 
     written = write_jsonl(outputs, output_path)
+    
+    # Finish progress tracking
+    if progress_tracker:
+        progress_tracker.finish()
     
     # Save to cache
     if not args.no_cache:
@@ -710,6 +745,253 @@ def main(argv: Optional[List[str]] = None) -> int:
     print("="*80 + "\n")
     
     logging.info("Wrote %d embedding records to %s", written, output_path)
+    return 0
+
+
+def process_folder_based_embedding(args) -> int:
+    """Process multiple folder-based chunked files."""
+    import glob
+    
+    # Find all chunked files matching the pattern
+    artifacts_dir = os.path.dirname(os.path.abspath(args.input))
+    pattern = os.path.join(artifacts_dir, "chunked_*.jsonl")
+    chunked_files = glob.glob(pattern)
+    
+    if not chunked_files:
+        logging.error("No folder-based chunked files found matching pattern: %s", pattern)
+        logging.info("Expected files like: chunked_folder1.jsonl, chunked_folder2.jsonl")
+        return 2
+    
+    logging.info("Found %d folder-based chunked files", len(chunked_files))
+    
+    # Initialize progress tracking
+    progress_tracker = None
+    if not args.verbose:  # Only show progress bar in non-verbose mode
+        try:
+            from .progress import ProgressTracker
+            progress_tracker = ProgressTracker(len(chunked_files), "Embedding (folder-based)")
+        except ImportError:
+            pass
+    
+    # Determine model name for config hash
+    if args.provider == "local":
+        model_name = args.embed_model
+    elif args.provider == "openai":
+        model_name = args.openai_embed_model
+    elif args.provider == "colbert":
+        model_name = args.colbert_model
+    else:  # bert
+        model_name = args.bert_model
+    
+    config_hash = compute_embed_config_hash(args.provider, model_name, args.summary_mode)
+    
+    # Prepare embedder (shared across all files)
+    if args.provider == "local":
+        embedder = LocalEmbedder(model_name=args.embed_model)
+        doc_prefix = _infer_doc_prefix(args.embed_model)
+    elif args.provider == "openai":
+        embedder = OpenAIEmbedder(model_name=args.openai_embed_model)
+        doc_prefix = ""
+    elif args.provider == "colbert":
+        embedder = ColBERTEmbedder(model_name=args.colbert_model, max_length=int(args.colbert_max_length))
+        doc_prefix = ""
+    else:  # bert
+        embedder = BertEmbedder(model_name=args.bert_model, max_length=int(args.bert_max_length))
+        doc_prefix = ""
+    
+    total_embeddings = 0
+    processed_files = []
+    
+    # Process each chunked file
+    for file_idx, chunked_file in enumerate(sorted(chunked_files)):
+        # Extract folder name from filename
+        basename = os.path.basename(chunked_file)
+        if basename.startswith("chunked_") and basename.endswith(".jsonl"):
+            folder_name = basename[8:-6]  # Remove "chunked_" and ".jsonl"
+        else:
+            folder_name = os.path.splitext(basename)[0]
+        
+        # Update progress
+        if progress_tracker:
+            progress_tracker.update(f"Folder: {folder_name}", file_idx)
+        
+        # Create corresponding embedding filename
+        if args.output.endswith('.jsonl'):
+            embed_file = os.path.join(artifacts_dir, f"embedded_{folder_name}.jsonl")
+        else:
+            # For .npz format or others
+            embed_ext = os.path.splitext(args.output)[1] or '.jsonl'
+            embed_file = os.path.join(artifacts_dir, f"embedded_{folder_name}{embed_ext}")
+        
+        logging.info("Processing %s -> %s", basename, os.path.basename(embed_file))
+        
+        # Initialize folder-specific cache
+        cache_path = args.cache_path or get_embed_cache_path(embed_file)
+        
+        # Check cache first
+        cache_hit = False
+        if not args.no_cache:
+            cache_entry = load_embed_cache(cache_path)
+            if is_embed_cache_valid(chunked_file, cache_entry, config_hash):
+                logging.info("✅ Cache hit for %s", folder_name)
+                embeddings = cache_entry.embeddings
+                written = write_jsonl(embeddings, embed_file)
+                cache_hit = True
+            else:
+                cache_hit = False
+        
+        if not cache_hit:
+            # Read and process this file
+            try:
+                chunks = list(read_jsonl(chunked_file))
+                if not chunks:
+                    logging.warning("No chunks found in %s", chunked_file)
+                    continue
+                
+                # Build page index for image context augmentation
+                page_index = build_page_index(chunks)
+                
+                outputs: List[Dict[str, object]] = []
+                batch_summary: List[str] = []
+                batch_full: List[str] = []
+                batch_meta: List[Dict[str, object]] = []
+                
+                for ch in chunks:
+                    full_text = build_full_text(ch, page_index)
+                    # Produce summary text
+                    if args.summary_mode == "heuristic":
+                        summary_text = heuristic_summary(ch, full_text)
+                    else:
+                        # For now fallback to heuristic; can be swapped to an LLM call if desired
+                        summary_text = heuristic_summary(ch, full_text)
+                    
+                    batch_summary.append((doc_prefix + summary_text) if doc_prefix else summary_text)
+                    batch_full.append((doc_prefix + full_text) if doc_prefix else full_text)
+                    batch_meta.append(
+                        {
+                            "id": ch.get("id"),
+                            "document_id": ch.get("document_id"),
+                            "source_path": ch.get("source_path"),
+                            "source_type": ch.get("source_type"),
+                            "metadata": ch.get("metadata", {}),
+                            "summary_text": summary_text,
+                            "full_text": full_text,
+                        }
+                    )
+                    
+                    # Flush in moderate batches for memory safety
+                    if len(batch_meta) >= 64:
+                        if args.provider == "colbert":
+                            # Native multi-vector per token + pooled vectors for compatibility
+                            emb_sum_mv = embedder.embed_token_vectors(batch_summary)  # type: ignore[attr-defined]
+                            emb_full_mv = embedder.embed_token_vectors(batch_full)  # type: ignore[attr-defined]
+                            emb_sum = embedder.embed_pooled(batch_summary)  # type: ignore[attr-defined]
+                            emb_full = embedder.embed_pooled(batch_full)  # type: ignore[attr-defined]
+                            for meta, v_s, v_f, mv_s, mv_f in zip(batch_meta, emb_sum, emb_full, emb_sum_mv, emb_full_mv):
+                                outputs.append({**meta, "embedding_summary": v_s, "embedding_full": v_f, "embedding_summary_mv": mv_s, "embedding_full_mv": mv_f})
+                        else:
+                            emb_sum = embedder.embed(batch_summary)
+                            emb_full = embedder.embed(batch_full)
+                            for meta, v_s, v_f in zip(batch_meta, emb_sum, emb_full):
+                                outputs.append({**meta, "embedding_summary": v_s, "embedding_full": v_f})
+                        batch_summary.clear()
+                        batch_full.clear()
+                        batch_meta.clear()
+                
+                # Flush remaining
+                if batch_meta:
+                    if args.provider == "colbert":
+                        emb_sum_mv = embedder.embed_token_vectors(batch_summary)  # type: ignore[attr-defined]
+                        emb_full_mv = embedder.embed_token_vectors(batch_full)  # type: ignore[attr-defined]
+                        emb_sum = embedder.embed_pooled(batch_summary)  # type: ignore[attr-defined]
+                        emb_full = embedder.embed_pooled(batch_full)  # type: ignore[attr-defined]
+                        for meta, v_s, v_f, mv_s, mv_f in zip(batch_meta, emb_sum, emb_full, emb_sum_mv, emb_full_mv):
+                            outputs.append({**meta, "embedding_summary": v_s, "embedding_full": v_f, "embedding_summary_mv": mv_s, "embedding_full_mv": mv_f})
+                    else:
+                        emb_sum = embedder.embed(batch_summary)
+                        emb_full = embedder.embed(batch_full)
+                        for meta, v_s, v_f in zip(batch_meta, emb_sum, emb_full):
+                            outputs.append({**meta, "embedding_summary": v_s, "embedding_full": v_f})
+                
+                written = write_jsonl(outputs, embed_file)
+                
+                # Save to cache
+                if not args.no_cache:
+                    try:
+                        stat = os.stat(chunked_file)
+                        new_cache_entry = EmbedCacheEntry(
+                            input_file=chunked_file,
+                            input_mtime=stat.st_mtime,
+                            input_size=stat.st_size,
+                            config_hash=config_hash,
+                            embeddings=outputs
+                        )
+                        save_embed_cache(new_cache_entry, cache_path)
+                    except Exception as e:
+                        logging.warning("Failed to save cache for %s: %s", folder_name, e)
+                
+            except Exception as e:
+                logging.error("Failed to process %s: %s", chunked_file, e)
+                continue
+        else:
+            written = len(embeddings)
+        
+        processed_files.append({
+            'folder_name': folder_name,
+            'chunked_file': chunked_file,
+            'embed_file': embed_file,
+            'embeddings_count': written,
+            'cache_hit': cache_hit
+        })
+        
+        total_embeddings += written
+        status = "cached" if cache_hit else "processed"
+        logging.info("Completed %s: %d embeddings (%s)", folder_name, written, status)
+    
+    # Finish progress tracking
+    if progress_tracker:
+        progress_tracker.finish()
+    
+    # Print comprehensive summary
+    print("\n" + "="*80)
+    print("███████╗███╗   ███╗██████╗ ███████╗██████╗ ██████╗ ██╗███╗   ██╗ ██████╗ ")
+    print("██╔════╝████╗ ████║██╔══██╗██╔════╝██╔══██╗██╔══██╗██║████╗  ██║██╔════╝ ")
+    print("█████╗  ██╔████╔██║██████╔╝█████╗  ██║  ██║██║  ██║██║██╔██╗ ██║██║  ███╗")
+    print("██╔══╝  ██║╚██╔╝██║██╔══██╗██╔══╝  ██║  ██║██║  ██║██║██║╚██╗██║██║   ██║")
+    print("███████╗██║ ╚═╝ ██║██████╔╝███████╗██████╔╝██████╔╝██║██║ ╚████║╚██████╔╝")
+    print("╚══════╝╚═╝     ╚═╝╚═════╝ ╚══════╝╚═════╝ ╚═════╝ ╚═╝╚═╝  ╚═══╝ ╚═════╝ ")
+    print("="*80)
+    print("🗂️  FOLDER-BASED EMBEDDING COMPLETED")
+    print("="*80)
+    print(f"📂 FOLDERS PROCESSED: {len(processed_files)}")
+    print(f"🔢 TOTAL EMBEDDINGS: {total_embeddings:,}")
+    print(f"🤖 PROVIDER: {args.provider}")
+    print(f"🧠 MODEL: {model_name}")
+    
+    # Cache statistics
+    cache_hits = sum(1 for f in processed_files if f['cache_hit'])
+    processed_count = len(processed_files) - cache_hits
+    if not args.no_cache and len(processed_files) > 0:
+        print(f"⚡ CACHE STATISTICS:")
+        print(f"   🔄 Files processed: {processed_count}")
+        print(f"   💾 Files from cache: {cache_hits}")
+        print(f"   📈 Cache hit rate: {cache_hits/len(processed_files)*100:.1f}%")
+    elif args.no_cache:
+        print(f"🚫 CACHING DISABLED - All {len(processed_files)} files were processed")
+    
+    # Detailed folder breakdown
+    print(f"📊 FOLDER BREAKDOWN:")
+    for info in sorted(processed_files, key=lambda x: x['embeddings_count'], reverse=True):
+        status_icon = "💾" if info['cache_hit'] else "🔄"
+        print(f"   📁 {info['folder_name']}: {info['embeddings_count']:,} embeddings {status_icon}")
+        print(f"      📄 Output: {os.path.basename(info['embed_file'])}")
+    
+    print("="*80)
+    print("✅ FOLDER-BASED EMBEDDING COMPLETED SUCCESSFULLY!")
+    print("="*80 + "\n")
+    
+    logging.info("Folder-based embedding completed. Processed %d folders with %d total embeddings.", 
+                len(processed_files), total_embeddings)
     return 0
 
 

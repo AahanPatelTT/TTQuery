@@ -579,8 +579,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Chunk parsed JSONL into token-targeted chunks")
     default_input = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "artifacts", "parsed.jsonl"))
     default_output = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "artifacts", "chunked.jsonl"))
-    parser.add_argument("--input", type=str, default=default_input, help="Input parsed JSONL path")
-    parser.add_argument("--output", type=str, default=default_output, help="Output chunked JSONL path")
+    parser.add_argument("--input", type=str, default=default_input, help="Input parsed JSONL path (or pattern for folder-based)")
+    parser.add_argument("--output", type=str, default=default_output, help="Output chunked JSONL path (or base path for folder-based)")
+    parser.add_argument("--folder-based", action="store_true", help="Process multiple folder-based parsed files")
     parser.add_argument("--target-tokens", type=int, default=300, help="Approx target tokens per chunk")
     parser.add_argument("--overlap", type=float, default=0.12, help="Overlap ratio between chunks (0-1)")
     parser.add_argument("--encoding", type=str, default="cl100k_base", help="Tokenizer encoding name")
@@ -592,6 +593,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         format="%(asctime)s %(levelname)s %(message)s",
     )
 
+    if args.folder_based:
+        return process_folder_based_chunking(args)
+    else:
+        return process_single_file_chunking(args)
+
+
+def process_single_file_chunking(args) -> int:
+    """Original single-file chunking logic."""
     input_path = os.path.abspath(args.input)
     output_path = os.path.abspath(args.output)
 
@@ -619,6 +628,114 @@ def main(argv: Optional[List[str]] = None) -> int:
     chunks = chunk_records(records, cfg)
     written = write_jsonl(chunks, output_path)
     logging.info("Wrote %d chunks to %s", written, output_path)
+    return 0
+
+
+def process_folder_based_chunking(args) -> int:
+    """Process multiple folder-based parsed files."""
+    import glob
+    
+    # Find all parsed files matching the pattern
+    artifacts_dir = os.path.dirname(os.path.abspath(args.input))
+    pattern = os.path.join(artifacts_dir, "parsed_*.jsonl")
+    parsed_files = glob.glob(pattern)
+    
+    if not parsed_files:
+        logging.error("No folder-based parsed files found matching pattern: %s", pattern)
+        logging.info("Expected files like: parsed_folder1.jsonl, parsed_folder2.jsonl")
+        return 2
+    
+    logging.info("Found %d folder-based parsed files", len(parsed_files))
+    
+    # Initialize progress tracking
+    progress_tracker = None
+    if not args.verbose:  # Only show progress bar in non-verbose mode
+        try:
+            from .progress import ProgressTracker
+            progress_tracker = ProgressTracker(len(parsed_files), "Chunking (folder-based)")
+        except ImportError:
+            progress_tracker = None
+    
+    cfg = ChunkingConfig(
+        target_tokens=max(50, int(args.target_tokens)),
+        overlap_ratio=max(0.0, min(0.5, float(args.overlap))),
+        encoding_name=str(args.encoding),
+    )
+    
+    total_chunks = 0
+    processed_files = []
+    
+    # Process each parsed file
+    for parsed_file in sorted(parsed_files):
+        # Extract folder name from filename
+        basename = os.path.basename(parsed_file)
+        if basename.startswith("parsed_") and basename.endswith(".jsonl"):
+            folder_name = basename[7:-6]  # Remove "parsed_" and ".jsonl"
+        else:
+            folder_name = os.path.splitext(basename)[0]
+        
+        # Create corresponding chunked filename
+        chunked_file = os.path.join(artifacts_dir, f"chunked_{folder_name}.jsonl")
+        
+        logging.info("Processing %s -> %s", basename, os.path.basename(chunked_file))
+        
+        # Read and process this file
+        try:
+            records = list(read_jsonl(parsed_file))
+            if not records:
+                logging.warning("No records found in %s", parsed_file)
+                continue
+            
+            chunks = chunk_records(records, cfg)
+            written = write_jsonl(chunks, chunked_file)
+            
+            processed_files.append({
+                'folder_name': folder_name,
+                'parsed_file': parsed_file,
+                'chunked_file': chunked_file,
+                'chunks_count': written,
+                'records_count': len(records)
+            })
+            
+            total_chunks += written
+            logging.info("Processed %s: %d records -> %d chunks", folder_name, len(records), written)
+            
+        except Exception as e:
+            logging.error("Failed to process %s: %s", parsed_file, e)
+            continue
+    
+    # Finish progress tracking
+    if progress_tracker:
+        progress_tracker.finish()
+    
+    # Print summary
+    print("\n" + "="*80)
+    print(" ██████╗██╗  ██╗██╗   ██╗███╗   ██╗██╗  ██╗██╗███╗   ██╗ ██████╗ ")
+    print("██╔════╝██║  ██║██║   ██║████╗  ██║██║ ██╔╝██║████╗  ██║██╔════╝ ")
+    print("██║     ███████║██║   ██║██╔██╗ ██║█████╔╝ ██║██╔██╗ ██║██║  ███╗")
+    print("██║     ██╔══██║██║   ██║██║╚██╗██║██╔═██╗ ██║██║╚██╗██║██║   ██║")
+    print("╚██████╗██║  ██║╚██████╔╝██║ ╚████║██║  ██╗██║██║ ╚████║╚██████╔╝")
+    print(" ╚═════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝ ╚═════╝ ")
+    print("="*80)
+    print("🗂️  FOLDER-BASED CHUNKING COMPLETED")
+    print("="*80)
+    print(f"📂 FOLDERS PROCESSED: {len(processed_files)}")
+    print(f"🔢 TOTAL CHUNKS: {total_chunks:,}")
+    print(f"🎯 TARGET TOKENS: {cfg.target_tokens}")
+    print(f"🔄 OVERLAP RATIO: {cfg.overlap_ratio:.1%}")
+    
+    # Detailed breakdown
+    print(f"📊 FOLDER BREAKDOWN:")
+    for info in sorted(processed_files, key=lambda x: x['chunks_count'], reverse=True):
+        print(f"   📁 {info['folder_name']}: {info['chunks_count']:,} chunks ({info['records_count']} records)")
+        print(f"      📄 Output: {os.path.basename(info['chunked_file'])}")
+    
+    print("="*80)
+    print("✅ FOLDER-BASED CHUNKING COMPLETED SUCCESSFULLY!")
+    print("="*80 + "\n")
+    
+    logging.info("Folder-based chunking completed. Processed %d folders with %d total chunks.", 
+                len(processed_files), total_chunks)
     return 0
 
 

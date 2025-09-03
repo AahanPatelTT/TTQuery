@@ -20,8 +20,17 @@ import os
 import re
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any, Set
 import base64
+import asyncio
+import concurrent.futures
+from functools import partial
+try:
+    import imagehash
+    IMAGEHASH_AVAILABLE = True
+except ImportError:
+    IMAGEHASH_AVAILABLE = False
+    logging.warning("imagehash library not available. Install with: pip install imagehash")
 
 
 @dataclass
@@ -42,19 +51,237 @@ class ExtractedImage:
     caption_text: str                # AI-generated caption
     technical_keywords: List[str]    # Extracted technical terms
     image_type: str                  # diagram, chart, photo, etc.
+    content_hash: Optional[str] = None  # Content-based hash for deduplication
+    is_duplicate: bool = False       # Whether this image is a duplicate of another
+    original_image_id: Optional[str] = None  # ID of the original if this is a duplicate
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return asdict(self)
 
 
+class ImageDeduplicationCache:
+    """Cache for tracking duplicate images during extraction."""
+    
+    def __init__(self, similarity_threshold: int = 10):
+        self.content_hash_to_image: Dict[str, ExtractedImage] = {}
+        self.processed_hashes: Set[str] = set()
+        # For perceptual hashing - maps hash to ExtractedImage
+        self.perceptual_hashes: Dict[str, ExtractedImage] = {}
+        self.similarity_threshold = similarity_threshold  # Hamming distance threshold for similar images
+    
+    def is_duplicate(self, content_hash: str, perceptual_hash: Optional[str] = None) -> Tuple[bool, Optional[str]]:
+        """Check if an image with this content hash or similar perceptual hash has already been processed.
+        
+        Returns:
+            Tuple[bool, Optional[str]]: (is_duplicate, original_hash_key)
+        """
+        # First check exact content match
+        if content_hash in self.processed_hashes:
+            return True, content_hash
+        
+        # If perceptual hashing is available and we have a perceptual hash, check for similar images
+        if IMAGEHASH_AVAILABLE and perceptual_hash:
+            try:
+                current_hash = imagehash.hex_to_hash(perceptual_hash)
+                for existing_hash_str, existing_image in self.perceptual_hashes.items():
+                    existing_hash = imagehash.hex_to_hash(existing_hash_str)
+                    # Calculate Hamming distance
+                    distance = current_hash - existing_hash
+                    if distance <= self.similarity_threshold:
+                        logging.debug(f"Found similar image with distance {distance} (threshold: {self.similarity_threshold})")
+                        return True, existing_image.content_hash
+            except Exception as e:
+                logging.debug(f"Error comparing perceptual hashes: {e}")
+        
+        return False, None
+    
+    def add_image(self, image: ExtractedImage, content_hash: str, perceptual_hash: Optional[str] = None) -> None:
+        """Add an image to the cache."""
+        self.content_hash_to_image[content_hash] = image
+        self.processed_hashes.add(content_hash)
+        image.content_hash = content_hash
+        
+        # Also store perceptual hash if available
+        if IMAGEHASH_AVAILABLE and perceptual_hash:
+            self.perceptual_hashes[perceptual_hash] = image
+    
+    def get_original_image(self, content_hash: str) -> Optional[ExtractedImage]:
+        """Get the original image for a given content hash."""
+        return self.content_hash_to_image.get(content_hash)
+    
+    def create_duplicate_reference(self, original_image: ExtractedImage, 
+                                 source_document: str, page_number: Optional[int],
+                                 document_context: str, source_type: str) -> ExtractedImage:
+        """Create a duplicate reference that points to the original image."""
+        duplicate_id = self._generate_duplicate_id(source_document, page_number, original_image.image_id)
+        
+        return ExtractedImage(
+            image_id=duplicate_id,
+            source_document=source_document,
+            source_type=source_type,
+            page_number=page_number,
+            image_path=original_image.image_path,  # Point to the same file
+            image_format=original_image.image_format,
+            width=original_image.width,
+            height=original_image.height,
+            file_size=original_image.file_size,
+            extraction_method=original_image.extraction_method,
+            document_context=document_context,
+            ocr_text=original_image.ocr_text,  # Reuse OCR text
+            caption_text=original_image.caption_text,  # Reuse caption
+            technical_keywords=original_image.technical_keywords,
+            image_type=original_image.image_type,
+            content_hash=original_image.content_hash,
+            is_duplicate=True,
+            original_image_id=original_image.image_id
+        )
+    
+    def _generate_duplicate_id(self, source_document: str, page_number: Optional[int], original_id: str) -> str:
+        """Generate a unique ID for a duplicate image reference."""
+        source_str = f"duplicate:{source_document}:page_{page_number}:original_{original_id}"
+        return hashlib.sha256(source_str.encode()).hexdigest()
+
+
+def optimize_image_for_ocr(image_data: bytes, max_dimension: int = 2048, fast_mode: bool = False) -> bytes:
+    """Optimize large images by reducing resolution while preserving OCR quality.
+    
+    Args:
+        image_data: Original image data
+        max_dimension: Maximum width or height for the optimized image
+    
+    Returns:
+        Optimized image data (or original if no optimization needed)
+    """
+    try:
+        from PIL import Image
+        import io
+        
+        with Image.open(io.BytesIO(image_data)) as img:
+            width, height = img.size
+            
+            # In fast mode, use more aggressive optimization
+            if fast_mode:
+                max_dimension = min(max_dimension, 1024)  # Smaller max size in fast mode
+            
+            # Only optimize if image is larger than max_dimension
+            if max(width, height) <= max_dimension:
+                return image_data
+            
+            # Calculate new dimensions maintaining aspect ratio
+            if width > height:
+                new_width = max_dimension
+                new_height = int(height * (max_dimension / width))
+            else:
+                new_height = max_dimension
+                new_width = int(width * (max_dimension / height))
+            
+            # Choose resampling method based on mode
+            if fast_mode:
+                # Faster but lower quality resampling
+                img_resized = img.resize((new_width, new_height), Image.Resampling.BILINEAR)
+            else:
+                # Higher quality but slower resampling
+                img_resized = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            
+            # Save optimized image
+            img_buffer = io.BytesIO()
+            if fast_mode:
+                img_resized.save(img_buffer, format='PNG', optimize=False)  # Skip optimization in fast mode
+            else:
+                img_resized.save(img_buffer, format='PNG', optimize=True)
+            optimized_data = img_buffer.getvalue()
+            
+            logging.debug(f"Optimized image from {width}x{height} to {new_width}x{new_height} (size: {len(image_data)} -> {len(optimized_data)} bytes)")
+            return optimized_data
+            
+    except Exception as e:
+        logging.warning(f"Failed to optimize image, using original: {e}")
+        return image_data
+
+
+def compute_image_hashes(image_data: bytes) -> Tuple[str, Optional[str]]:
+    """Compute both content-based hash and perceptual hash for an image.
+    
+    Returns:
+        Tuple[str, Optional[str]]: (content_hash, perceptual_hash)
+    """
+    try:
+        from PIL import Image
+        import io
+        
+        # Open the image
+        with Image.open(io.BytesIO(image_data)) as img:
+            # Convert to RGB to normalize color spaces
+            if img.mode != 'RGB':
+                img = img.convert('RGB')
+            
+            # Compute perceptual hash if available
+            perceptual_hash = None
+            if IMAGEHASH_AVAILABLE:
+                try:
+                    # Use average hash for good balance of speed and accuracy
+                    # You can also use phash (perceptual hash) for better accuracy but slower performance
+                    hash_obj = imagehash.average_hash(img, hash_size=16)
+                    perceptual_hash = str(hash_obj)
+                except Exception as e:
+                    logging.debug(f"Failed to compute perceptual hash: {e}")
+            
+            # Resize to a standard size for content comparison (handles minor scaling differences)
+            img_normalized = img.resize((512, 512), Image.Resampling.LANCZOS)
+            
+            # Convert back to bytes for content hash
+            img_buffer = io.BytesIO()
+            img_normalized.save(img_buffer, format='PNG')
+            normalized_data = img_buffer.getvalue()
+            
+            # Hash the normalized image data
+            content_hash = hashlib.sha256(normalized_data).hexdigest()
+            
+            return content_hash, perceptual_hash
+            
+    except Exception as e:
+        logging.warning(f"Failed to compute image hashes, using raw data hash: {e}")
+        # Fallback to raw data hash
+        content_hash = hashlib.sha256(image_data).hexdigest()
+        return content_hash, None
+
+
+def compute_image_content_hash(image_data: bytes) -> str:
+    """Compute a content-based hash for an image to detect duplicates.
+    
+    This function is kept for backward compatibility.
+    """
+    content_hash, _ = compute_image_hashes(image_data)
+    return content_hash
+
+
+def compute_image_file_hash(image_path: str) -> str:
+    """Compute a content-based hash for an image file."""
+    try:
+        with open(image_path, 'rb') as f:
+            image_data = f.read()
+        content_hash, _ = compute_image_hashes(image_data)
+        return content_hash
+    except Exception as e:
+        logging.error(f"Failed to compute hash for image file {image_path}: {e}")
+        return ""
+
+
 class PDFImageExtractor:
     """Extract images from PDF documents."""
     
-    def __init__(self, output_dir: str = "artifacts/extracted_images", enable_captioning: bool = True):
+    def __init__(self, output_dir: str = "artifacts/extracted_images", enable_captioning: bool = True, 
+                 dedup_cache: Optional[ImageDeduplicationCache] = None, fast_mode: bool = False): 
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.enable_captioning = enable_captioning
+        self.enable_captioning = enable_captioning and not fast_mode  # Disable captioning in fast mode
+        self.dedup_cache = dedup_cache or ImageDeduplicationCache()
+        self.fast_mode = fast_mode
+        # Cache for fast OCR processing
+        self._fast_ocr_cache = {}
+        # Thread pool for async processing
+        self._executor = None
         
     def extract_images_pymupdf(self, pdf_path: str, page_context: Optional[Dict[int, str]] = None) -> List[ExtractedImage]:
         """Extract images using PyMuPDF (fast, good for most PDFs)."""
@@ -88,18 +315,46 @@ class PDFImageExtractor:
                             pix = None
                             continue
                         
-                        # Generate unique filename
+                        # Get image data for deduplication check
+                        if pix.n - pix.alpha < 4:  # GRAY or RGB
+                            image_data = pix.tobytes("png")
+                        else:  # CMYK: convert to RGB first
+                            pix1 = fitz.Pixmap(fitz.csRGB, pix)
+                            image_data = pix1.tobytes("png")
+                            pix1 = None
+                        
+                        # Optimize image for better processing (especially for large images)
+                        optimized_image_data = optimize_image_for_ocr(image_data, fast_mode=self.fast_mode)
+                        
+                        # Compute both content and perceptual hashes for deduplication
+                        content_hash, perceptual_hash = compute_image_hashes(image_data)
+                        
+                        # Check if this image is a duplicate
+                        is_dup, original_hash = self.dedup_cache.is_duplicate(content_hash, perceptual_hash)
+                        if is_dup:
+                            original_image = self.dedup_cache.get_original_image(original_hash)
+                            if original_image:
+                                logging.debug(f"Found duplicate image in {pdf_path} page {page_num + 1}, referencing original (hash: {original_hash[:8]})")
+                                # Create a duplicate reference instead of saving the image again
+                                duplicate_ref = self.dedup_cache.create_duplicate_reference(
+                                    original_image, 
+                                    os.path.abspath(pdf_path),
+                                    page_num + 1,
+                                    page_text[:2000],
+                                    "pdf"
+                                )
+                                extracted_images.append(duplicate_ref)
+                                pix = None
+                                continue
+                        
+                        # This is a new unique image - save it
                         image_id = self._generate_image_id(pdf_path, page_num + 1, img_index)
                         image_filename = f"{doc_name}_p{page_num + 1:03d}_img{img_index:02d}_{image_id[:8]}.png"
                         image_path = self.output_dir / image_filename
                         
-                        # Convert to PNG and save
-                        if pix.n - pix.alpha < 4:  # GRAY or RGB
-                            pix.save(str(image_path))
-                        else:  # CMYK: convert to RGB first
-                            pix1 = fitz.Pixmap(fitz.csRGB, pix)
-                            pix1.save(str(image_path))
-                            pix1 = None
+                        # Save the optimized image data
+                        with open(image_path, 'wb') as f:
+                            f.write(optimized_image_data)
                         
                         # Extract text using OCR if available
                         ocr_text = self._extract_ocr_text(str(image_path))
@@ -129,8 +384,11 @@ class PDFImageExtractor:
                             image_type=image_type
                         )
                         
+                        # Add to deduplication cache
+                        self.dedup_cache.add_image(extracted_image, content_hash, perceptual_hash)
+                        
                         extracted_images.append(extracted_image)
-                        logging.debug(f"Extracted image: {image_filename}")
+                        logging.debug(f"Extracted unique image: {image_filename}")
                         
                         pix = None
                         
@@ -144,6 +402,23 @@ class PDFImageExtractor:
             logging.error(f"Failed to extract images from {pdf_path}: {e}")
             
         return extracted_images
+    
+    def _get_executor(self):
+        """Get or create thread pool executor for async processing."""
+        if self._executor is None:
+            self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+        return self._executor
+    
+    async def extract_images_async(self, pdf_path: str, page_context: Optional[Dict[int, str]] = None) -> List[ExtractedImage]:
+        """Async version of image extraction for real-time processing."""
+        loop = asyncio.get_event_loop()
+        executor = self._get_executor()
+        
+        # Run the synchronous extraction in a thread pool
+        return await loop.run_in_executor(
+            executor, 
+            partial(self.extract_images_pymupdf, pdf_path, page_context)
+        )
     
     def extract_images_unstructured(self, pdf_path: str) -> List[ExtractedImage]:
         """Extract images using unstructured.io (more comprehensive but slower)."""
@@ -243,6 +518,14 @@ class PDFImageExtractor:
             import pytesseract
             from PIL import Image
             
+            # In fast mode, use simpler OCR configuration
+            if self.fast_mode:
+                with Image.open(image_path) as img:
+                    # Use faster, simpler OCR config
+                    ocr_text = pytesseract.image_to_string(img, config='--psm 6')
+                    return self._correct_technical_ocr_errors(ocr_text.strip())
+            
+            # Standard mode with enhanced configuration
             with Image.open(image_path) as img:
                 # Use enhanced OCR configuration for technical diagrams
                 custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ×x-/()[]{}:.,;'
@@ -387,10 +670,13 @@ class PDFImageExtractor:
 class PPTXImageExtractor:
     """Extract images from PowerPoint presentations."""
     
-    def __init__(self, output_dir: str = "artifacts/extracted_images", enable_captioning: bool = True):
+    def __init__(self, output_dir: str = "artifacts/extracted_images", enable_captioning: bool = True,
+                 dedup_cache: Optional[ImageDeduplicationCache] = None, fast_mode: bool = False):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.enable_captioning = enable_captioning
+        self.enable_captioning = enable_captioning and not fast_mode  # Disable captioning in fast mode
+        self.dedup_cache = dedup_cache or ImageDeduplicationCache()
+        self.fast_mode = fast_mode
     
     def extract_images(self, pptx_path: str) -> List[ExtractedImage]:
         """Extract images from PPTX file."""
@@ -423,14 +709,38 @@ class PPTXImageExtractor:
                             # Extract embedded image
                             image_stream = shape.image.blob
                             
-                            # Generate filename
+                            # Optimize image for better processing
+                            optimized_image_data = optimize_image_for_ocr(image_stream, fast_mode=self.fast_mode)
+                            
+                            # Compute both content and perceptual hashes for deduplication
+                            content_hash, perceptual_hash = compute_image_hashes(image_stream)
+                            
+                            # Check if this image is a duplicate
+                            is_dup, original_hash = self.dedup_cache.is_duplicate(content_hash, perceptual_hash)
+                            if is_dup:
+                                original_image = self.dedup_cache.get_original_image(original_hash)
+                                if original_image:
+                                    logging.debug(f"Found duplicate image in {pptx_path} slide {slide_idx + 1}, referencing original (hash: {original_hash[:8]})")
+                                    # Create a duplicate reference instead of saving the image again
+                                    duplicate_ref = self.dedup_cache.create_duplicate_reference(
+                                        original_image,
+                                        os.path.abspath(pptx_path),
+                                        slide_idx + 1,
+                                        slide_context[:2000],
+                                        "pptx"
+                                    )
+                                    extracted_images.append(duplicate_ref)
+                                    img_idx += 1
+                                    continue
+                            
+                            # This is a new unique image - save it
                             image_id = self._generate_image_id(pptx_path, slide_idx + 1, img_idx)
                             image_filename = f"{doc_name}_s{slide_idx + 1:03d}_img{img_idx:02d}_{image_id[:8]}.png"
                             image_path = self.output_dir / image_filename
                             
-                            # Save image
+                            # Save optimized image
                             with open(image_path, 'wb') as f:
-                                f.write(image_stream)
+                                f.write(optimized_image_data)
                             
                             # Get image dimensions
                             with Image.open(image_path) as img:
@@ -459,8 +769,11 @@ class PPTXImageExtractor:
                                 image_type=image_type
                             )
                             
+                            # Add to deduplication cache
+                            self.dedup_cache.add_image(extracted_image, content_hash, perceptual_hash)
+                            
                             extracted_images.append(extracted_image)
-                            logging.debug(f"Extracted PPTX image: {image_filename}")
+                            logging.debug(f"Extracted unique PPTX image: {image_filename}")
                             
                             img_idx += 1
                             
@@ -484,6 +797,14 @@ class PPTXImageExtractor:
             import pytesseract
             from PIL import Image
             
+            # In fast mode, use simpler OCR configuration
+            if self.fast_mode:
+                with Image.open(image_path) as img:
+                    # Use faster, simpler OCR config
+                    ocr_text = pytesseract.image_to_string(img, config='--psm 6')
+                    return self._correct_technical_ocr_errors(ocr_text.strip())
+            
+            # Standard mode with enhanced configuration
             with Image.open(image_path) as img:
                 custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ×x-/()[]{}:.,;'
                 ocr_text = pytesseract.image_to_string(img, config=custom_config)
