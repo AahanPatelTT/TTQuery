@@ -7,6 +7,7 @@ class SynapseApp {
     this.config = {};
     this.isLoading = false;
     this.currentSession = null;
+    this.selectedFiles = [];
     
     // Initialize the app
     this.init();
@@ -58,6 +59,9 @@ class SynapseApp {
     document.getElementById('load-session-btn').addEventListener('click', () => this.loadSelectedSession());
     document.getElementById('save-as-default-btn').addEventListener('click', () => this.saveAsDefault());
     document.getElementById('reset-to-default-btn').addEventListener('click', () => this.resetToDefault());
+    
+    // Document upload functionality
+    this.setupUploadHandlers();
 
     // Image controls synchronization
     this.setupImageControls();
@@ -509,7 +513,19 @@ class SynapseApp {
       }
       
       if (sourcesHtml && sourcesHtml.trim()) {
-        fullContent += `<div class="sources">${sourcesHtml}</div>`;
+        const sourcesId = `sources-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        fullContent += `
+          <div class="sources-container">
+            <button class="sources-toggle" onclick="window.synapseApp.toggleSources('${sourcesId}')">
+              <span class="sources-icon">📚</span>
+              <span class="sources-text">Sources</span>
+              <span class="sources-arrow">▼</span>
+            </button>
+            <div class="sources-content" id="${sourcesId}" style="display: none;">
+              ${sourcesHtml}
+            </div>
+          </div>
+        `;
       }
       
       messageDiv.innerHTML = fullContent;
@@ -868,6 +884,449 @@ class SynapseApp {
   getSelectedKnowledgeBases() {
     const checkboxes = document.querySelectorAll('#kb-list input[type="checkbox"]:checked');
     return Array.from(checkboxes).map(cb => cb.dataset.kbName);
+  }
+
+  // Document Upload Functionality
+  setupUploadHandlers() {
+    const fileInput = document.getElementById('file-input');
+    const uploadArea = document.getElementById('file-upload-area');
+    const uploadBtn = document.getElementById('upload-btn');
+    const uploadFolder = document.getElementById('upload-folder');
+    const customFolder = document.getElementById('custom-folder');
+
+    // Initialize upload folder dropdown
+    this.populateUploadFolders();
+
+    // File input change
+    fileInput.addEventListener('change', (e) => this.handleFileSelection(e.target.files));
+
+    // Upload area click
+    uploadArea.addEventListener('click', () => fileInput.click());
+
+    // Drag and drop
+    uploadArea.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      uploadArea.classList.add('dragover');
+    });
+
+    uploadArea.addEventListener('dragleave', (e) => {
+      e.preventDefault();
+      uploadArea.classList.remove('dragover');
+    });
+
+    uploadArea.addEventListener('drop', (e) => {
+      e.preventDefault();
+      uploadArea.classList.remove('dragover');
+      this.handleFileSelection(e.dataTransfer.files);
+    });
+
+    // Upload button
+    uploadBtn.addEventListener('click', () => this.uploadFiles());
+
+    // Folder selection
+    uploadFolder.addEventListener('change', (e) => {
+      if (e.target.value === 'custom') {
+        customFolder.style.display = 'block';
+        customFolder.focus();
+      } else {
+        customFolder.style.display = 'none';
+      }
+      this.updateUploadButton();
+    });
+
+    // Custom folder input
+    customFolder.addEventListener('input', () => this.updateUploadButton());
+  }
+
+  async populateUploadFolders() {
+    try {
+      // Get existing knowledge bases
+      const response = await fetch('/api/knowledge-bases');
+      const data = await response.json();
+      
+      const uploadFolder = document.getElementById('upload-folder');
+      
+      // Clear existing options except first
+      while (uploadFolder.children.length > 1) {
+        uploadFolder.removeChild(uploadFolder.lastChild);
+      }
+
+      // Add existing knowledge bases
+      if (data.knowledge_bases && data.knowledge_bases.length > 0) {
+        data.knowledge_bases.forEach(kb => {
+          const option = document.createElement('option');
+          option.value = kb.name;
+          option.textContent = kb.display_name;
+          uploadFolder.appendChild(option);
+        });
+      }
+
+      // Add common folder options
+      const commonFolders = ['documents', 'research', 'technical', 'uploads'];
+      commonFolders.forEach(folder => {
+        if (!Array.from(uploadFolder.options).some(opt => opt.value === folder)) {
+          const option = document.createElement('option');
+          option.value = folder;
+          option.textContent = folder;
+          uploadFolder.appendChild(option);
+        }
+      });
+
+      // Add custom option
+      const customOption = document.createElement('option');
+      customOption.value = 'custom';
+      customOption.textContent = '+ Create New Knowledge Base';
+      uploadFolder.appendChild(customOption);
+
+    } catch (error) {
+      console.error('Failed to load upload folders:', error);
+    }
+  }
+
+  handleFileSelection(files) {
+    const fileArray = Array.from(files);
+    const validFiles = fileArray.filter(file => this.isValidFileType(file));
+    
+    if (validFiles.length === 0) {
+      this.showUploadMessage('No valid files selected. Please select PDF, PPTX, DOCX, TXT, MD, CSV, or image files.', 'error');
+      return;
+    }
+
+    if (validFiles.length !== fileArray.length) {
+      this.showUploadMessage(`${fileArray.length - validFiles.length} files were filtered out due to unsupported file types.`, 'info');
+    }
+
+    this.selectedFiles = validFiles;
+    this.displaySelectedFiles();
+    this.updateUploadButton();
+  }
+
+  isValidFileType(file) {
+    const validExtensions = ['.pdf', '.pptx', '.docx', '.txt', '.md', '.csv', '.png', '.jpg', '.jpeg', '.tiff', '.bmp'];
+    const fileName = file.name.toLowerCase();
+    return validExtensions.some(ext => fileName.endsWith(ext));
+  }
+
+  displaySelectedFiles() {
+    const fileList = document.getElementById('file-list');
+    const uploadPrompt = document.querySelector('.upload-prompt');
+    
+    if (this.selectedFiles.length === 0) {
+      fileList.style.display = 'none';
+      uploadPrompt.style.display = 'block';
+      return;
+    }
+
+    uploadPrompt.style.display = 'none';
+    fileList.style.display = 'block';
+    fileList.innerHTML = '';
+
+    this.selectedFiles.forEach((file, index) => {
+      const fileItem = document.createElement('div');
+      fileItem.className = 'file-item';
+      
+      const fileInfo = document.createElement('div');
+      fileInfo.className = 'file-info';
+      
+      const fileIcon = document.createElement('span');
+      fileIcon.className = 'file-icon';
+      fileIcon.textContent = this.getFileIcon(file.name);
+      
+      const fileName = document.createElement('span');
+      fileName.className = 'file-name';
+      fileName.textContent = file.name;
+      
+      const fileSize = document.createElement('span');
+      fileSize.className = 'file-size';
+      fileSize.textContent = this.formatFileSize(file.size);
+      
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'file-remove';
+      removeBtn.textContent = '✕';
+      removeBtn.title = 'Remove file';
+      removeBtn.addEventListener('click', () => this.removeFile(index));
+      
+      fileInfo.appendChild(fileIcon);
+      fileInfo.appendChild(fileName);
+      fileInfo.appendChild(fileSize);
+      fileItem.appendChild(fileInfo);
+      fileItem.appendChild(removeBtn);
+      fileList.appendChild(fileItem);
+    });
+  }
+
+  getFileIcon(fileName) {
+    const ext = fileName.toLowerCase().split('.').pop();
+    const icons = {
+      'pdf': '📄',
+      'pptx': '📊',
+      'docx': '📝',
+      'txt': '📃',
+      'md': '📋',
+      'csv': '📈',
+      'png': '🖼️',
+      'jpg': '🖼️',
+      'jpeg': '🖼️',
+      'tiff': '🖼️',
+      'bmp': '🖼️'
+    };
+    return icons[ext] || '📎';
+  }
+
+  formatFileSize(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  }
+
+  removeFile(index) {
+    this.selectedFiles.splice(index, 1);
+    this.displaySelectedFiles();
+    this.updateUploadButton();
+  }
+
+  updateUploadButton() {
+    const uploadBtn = document.getElementById('upload-btn');
+    const uploadFolder = document.getElementById('upload-folder');
+    const customFolder = document.getElementById('custom-folder');
+    
+    const hasFiles = this.selectedFiles && this.selectedFiles.length > 0;
+    const hasFolder = uploadFolder.value && uploadFolder.value !== '' && 
+                     (uploadFolder.value !== 'custom' || customFolder.value.trim() !== '');
+    
+    uploadBtn.disabled = !hasFiles || !hasFolder;
+    
+    if (hasFiles && hasFolder) {
+      uploadBtn.textContent = `📤 Upload ${this.selectedFiles.length} file${this.selectedFiles.length > 1 ? 's' : ''}`;
+    } else {
+      uploadBtn.textContent = '📤 Upload & Process';
+    }
+  }
+
+  async uploadFiles() {
+    if (!this.selectedFiles || this.selectedFiles.length === 0) {
+      this.showUploadMessage('No files selected', 'error');
+      return;
+    }
+
+    const uploadFolder = document.getElementById('upload-folder');
+    const customFolder = document.getElementById('custom-folder');
+    
+    let folderName = uploadFolder.value;
+    if (folderName === 'custom') {
+      folderName = customFolder.value.trim();
+      if (!folderName) {
+        this.showUploadMessage('Please enter a knowledge base name', 'error');
+        return;
+      }
+    }
+
+    try {
+      this.showUploadProgress(true);
+      this.updateProgressBar(0, 'Preparing upload...');
+
+      const formData = new FormData();
+      this.selectedFiles.forEach(file => {
+        formData.append('files', file);
+      });
+      formData.append('folder', folderName);
+
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!response.ok) {
+        throw new Error(`Upload failed: ${response.status}`);
+      }
+
+      const result = await response.json();
+      
+      this.updateProgressBar(100, 'Upload completed!');
+      
+      // Show detailed progress steps if auto-processing started
+      if (result.auto_processing) {
+        this.showProgressDetails(true);
+        this.updateProgressStep('upload-status', 'Complete ✅');
+        this.updateProgressStep('parsing-status', 'Starting...');
+      }
+      
+      // Show detailed results
+      if (result.duplicate_files && result.duplicate_files.length > 0) {
+        result.duplicate_files.forEach(dup => {
+          this.showUploadMessage(`Skipped duplicate: ${dup.filename} (${dup.reason})`, 'info');
+        });
+      }
+      
+      if (result.failed_files && result.failed_files.length > 0) {
+        result.failed_files.forEach(failed => {
+          this.showUploadMessage(`Failed: ${failed.filename} - ${failed.error}`, 'error');
+        });
+      }
+      
+      setTimeout(() => {
+        this.showUploadProgress(false);
+        this.clearUploadForm();
+        this.showUploadMessage(result.message, 'success');
+        
+        // If auto-processing started, show progress updates
+        if (result.auto_processing) {
+          this.monitorUploadProgress(result.folder);
+        }
+        
+        // Refresh knowledge bases to show the new one
+        this.loadKnowledgeBases();
+        this.populateUploadFolders();
+      }, 1000);
+
+    } catch (error) {
+      this.showUploadProgress(false);
+      this.showUploadMessage(`Upload failed: ${error.message}`, 'error');
+      console.error('Upload error:', error);
+    }
+  }
+
+  showUploadProgress(show) {
+    const progressDiv = document.getElementById('upload-progress');
+    progressDiv.style.display = show ? 'block' : 'none';
+    
+    if (!show) {
+      this.showProgressDetails(false);
+    }
+  }
+
+  updateProgressBar(percent, text) {
+    const progressFill = document.getElementById('progress-fill');
+    const progressText = document.getElementById('progress-text');
+    
+    progressFill.style.width = `${percent}%`;
+    progressText.textContent = text;
+  }
+
+  showProgressDetails(show) {
+    const progressDetails = document.getElementById('progress-details');
+    progressDetails.style.display = show ? 'block' : 'none';
+  }
+
+  updateProgressStep(stepId, status) {
+    const stepElement = document.getElementById(stepId);
+    if (stepElement) {
+      stepElement.textContent = status;
+    }
+  }
+
+  clearUploadForm() {
+    this.selectedFiles = [];
+    document.getElementById('file-input').value = '';
+    document.getElementById('upload-folder').value = '';
+    document.getElementById('custom-folder').value = '';
+    document.getElementById('custom-folder').style.display = 'none';
+    this.displaySelectedFiles();
+    this.updateUploadButton();
+  }
+
+  showUploadMessage(message, type) {
+    const messagesContainer = document.getElementById('upload-messages');
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `upload-message ${type}`;
+    messageDiv.textContent = message;
+    
+    messagesContainer.appendChild(messageDiv);
+    
+    // Auto-remove after 5 seconds
+    setTimeout(() => {
+      if (messageDiv.parentNode) {
+        messageDiv.parentNode.removeChild(messageDiv);
+      }
+    }, 5000);
+    
+    // Scroll to show the message
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+  }
+
+  // Sources toggle functionality
+  toggleSources(sourcesId) {
+    const sourcesContent = document.getElementById(sourcesId);
+    const toggleButton = sourcesContent.previousElementSibling;
+    const arrow = toggleButton.querySelector('.sources-arrow');
+    
+    if (sourcesContent.style.display === 'none') {
+      sourcesContent.style.display = 'block';
+      arrow.textContent = '▲';
+      toggleButton.classList.add('expanded');
+    } else {
+      sourcesContent.style.display = 'none';
+      arrow.textContent = '▼';
+      toggleButton.classList.remove('expanded');
+    }
+  }
+
+  // Monitor upload progress
+  async monitorUploadProgress(folderKey) {
+    const maxChecks = 30; // Maximum number of progress checks (5 minutes)
+    let checkCount = 0;
+    
+    const checkProgress = async () => {
+      try {
+        const response = await fetch(`/api/upload/progress/${folderKey}`);
+        if (!response.ok) return;
+        
+        const progress = await response.json();
+        
+        // Show progress message and update detailed steps
+        if (progress.status === 'processing') {
+          const overallProgress = Math.round(progress.overall_progress);
+          
+          // Update detailed progress steps
+          if (progress.parsing.progress >= 100) {
+            this.updateProgressStep('parsing-status', 'Complete ✅');
+          } else {
+            this.updateProgressStep('parsing-status', `${Math.round(progress.parsing.progress)}%`);
+          }
+          
+          if (progress.embedding.progress >= 100) {
+            this.updateProgressStep('embedding-status', 'Complete ✅');
+          } else if (progress.embedding.progress > 0) {
+            this.updateProgressStep('embedding-status', `${Math.round(progress.embedding.progress)}% (${progress.embedding.completed}/${progress.embedding.total})`);
+          } else {
+            this.updateProgressStep('embedding-status', 'Waiting...');
+          }
+          
+          this.showUploadMessage(
+            `Processing ${folderKey}: ${overallProgress}% complete`, 
+            'info'
+          );
+          
+          checkCount++;
+          if (checkCount < maxChecks) {
+            // Check again in 10 seconds
+            setTimeout(checkProgress, 10000);
+          }
+        } else if (progress.status === 'complete') {
+          // Update all steps to complete
+          this.updateProgressStep('parsing-status', 'Complete ✅');
+          this.updateProgressStep('embedding-status', 'Complete ✅');
+          
+          this.showUploadMessage(`✅ Processing completed for ${folderKey}! Knowledge base updated.`, 'success');
+          
+          // Hide progress details after a delay
+          setTimeout(() => {
+            this.showProgressDetails(false);
+          }, 3000);
+          
+          // Refresh knowledge bases to reflect the updates
+          this.loadKnowledgeBases();
+        }
+        
+      } catch (error) {
+        console.error('Progress monitoring error:', error);
+      }
+    };
+    
+    // Start monitoring after a short delay
+    setTimeout(checkProgress, 5000);
   }
 }
 

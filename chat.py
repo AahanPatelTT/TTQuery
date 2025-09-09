@@ -1371,6 +1371,329 @@ def run_gui(embeddings_path: str, default_timeout: int = 60, selected_kb_name: O
         except Exception as e:
             return jsonify({"ok": False, "error": str(e)}), 500
 
+    @app.post("/api/upload")
+    def upload_documents():
+        """Upload documents to a specific knowledge base folder with duplicate detection and auto-processing."""
+        try:
+            from flask import request
+            from werkzeug.utils import secure_filename
+            import threading
+            
+            if 'files' not in request.files:
+                return jsonify({'error': 'No files provided'}), 400
+            
+            files = request.files.getlist('files')
+            folder = request.form.get('folder', 'uploads')
+            
+            if not files or all(file.filename == '' for file in files):
+                return jsonify({'error': 'No files selected'}), 400
+            
+            # Sanitize folder name
+            folder = secure_filename(folder) or 'uploads'
+            folder_path = os.path.join('Data', folder)
+            os.makedirs(folder_path, exist_ok=True)
+            
+            # Initialize database for duplicate checking
+            db = None
+            try:
+                from pipeline.database import SynapseDB
+                db = SynapseDB()
+            except ImportError:
+                logging.warning("Database not available for duplicate detection")
+            
+            # Allowed file extensions
+            allowed_extensions = {
+                'pdf', 'pptx', 'docx', 'txt', 'md', 'csv',
+                'png', 'jpg', 'jpeg', 'tiff', 'bmp'
+            }
+            
+            def allowed_file(filename):
+                return '.' in filename and filename.rsplit('.', 1)[1].lower() in allowed_extensions
+            
+            uploaded_files = []
+            failed_files = []
+            duplicate_files = []
+            
+            for file in files:
+                if file and file.filename and allowed_file(file.filename):
+                    filename = secure_filename(file.filename)
+                    file_path = os.path.join(folder_path, filename)
+                    
+                    try:
+                        # Check for duplicates before saving
+                        duplicate_by_name = None
+                        duplicate_by_content = None
+                        
+                        if db:
+                            # Check if file with same name already exists
+                            duplicate_by_name = db.find_duplicate_by_name(file_path, folder)
+                        
+                        # If file already exists, check if content is different
+                        if os.path.exists(file_path):
+                            # Save to temporary location to check content
+                            temp_path = file_path + '.tmp'
+                            file.save(temp_path)
+                            
+                            if db:
+                                duplicate_by_content = db.find_duplicate_by_content(temp_path, folder)
+                            
+                            # Check if content is identical to existing file
+                            if os.path.exists(file_path):
+                                import filecmp
+                                if filecmp.cmp(temp_path, file_path, shallow=False):
+                                    # Identical content - this is a duplicate
+                                    os.unlink(temp_path)
+                                    duplicate_files.append({
+                                        'filename': filename,
+                                        'reason': 'Identical file already exists',
+                                        'existing_path': file_path
+                                    })
+                                    continue
+                                else:
+                                    # Different content - replace the file
+                                    os.replace(temp_path, file_path)
+                            else:
+                                # File doesn't exist, move temp to final location
+                                os.rename(temp_path, file_path)
+                        else:
+                            # New file - save normally
+                            file.save(file_path)
+                        
+                        # Check for content duplicates in database
+                        if db and duplicate_by_content:
+                            duplicate_files.append({
+                                'filename': filename,
+                                'reason': 'Same content exists in different file',
+                                'existing_path': duplicate_by_content
+                            })
+                            os.unlink(file_path)  # Remove the duplicate
+                            continue
+                        
+                        uploaded_files.append({
+                            'filename': filename,
+                            'path': file_path,
+                            'folder': folder,
+                            'size': os.path.getsize(file_path)
+                        })
+                        logging.info(f"Uploaded file: {file_path}")
+                        
+                    except Exception as e:
+                        failed_files.append({
+                            'filename': file.filename,
+                            'error': str(e)
+                        })
+                        logging.error(f"Failed to upload {file.filename}: {e}")
+                else:
+                    failed_files.append({
+                        'filename': file.filename or 'Unknown',
+                        'error': 'Invalid file type or empty file'
+                    })
+            
+            # Trigger auto-reinitialization if files were uploaded
+            processing_started = False
+            if uploaded_files:
+                try:
+                    # Start background processing
+                    def process_uploaded_files():
+                        try:
+                            logging.info(f"Starting auto-reinitialization for folder: {folder}")
+                            
+                            # Import and run fast initialization for this folder
+                            import subprocess
+                            result = subprocess.run([
+                                'python3', 'initialize_fast.py', 
+                                '--folder', folder,
+                                '--skip-images'  # Fast processing
+                            ], capture_output=True, text=True, cwd=os.getcwd())
+                            
+                            if result.returncode == 0:
+                                logging.info(f"Auto-reinitialization completed for folder: {folder}")
+                            else:
+                                logging.error(f"Auto-reinitialization failed for {folder}: {result.stderr}")
+                                
+                        except Exception as e:
+                            logging.error(f"Background processing error: {e}")
+                    
+                    # Start processing in background thread
+                    processing_thread = threading.Thread(target=process_uploaded_files, daemon=True)
+                    processing_thread.start()
+                    processing_started = True
+                    
+                except Exception as e:
+                    logging.warning(f"Failed to start background processing: {e}")
+            
+            # Build response message
+            message_parts = []
+            if uploaded_files:
+                message_parts.append(f"Uploaded {len(uploaded_files)} files to '{folder}'")
+            if duplicate_files:
+                message_parts.append(f"Skipped {len(duplicate_files)} duplicates")
+            if failed_files:
+                message_parts.append(f"{len(failed_files)} files failed")
+            
+            message = ", ".join(message_parts) if message_parts else "No files processed"
+            
+            if processing_started:
+                message += ". Processing started in background."
+            
+            return jsonify({
+                'success': True,
+                'message': message,
+                'uploaded_files': uploaded_files,
+                'failed_files': failed_files,
+                'duplicate_files': duplicate_files,
+                'folder': folder,
+                'auto_processing': processing_started
+            })
+        
+        except Exception as e:
+            logging.error(f"Upload error: {e}")
+            return jsonify({'error': str(e)}), 500
+
+    @app.get("/api/upload/status")
+    def get_upload_status():
+        """Get upload and processing status."""
+        try:
+            # Try to get status from the fast database system
+            try:
+                from pipeline.database import SynapseDB
+                from pipeline.fast_embed import FastEmbeddingService
+                
+                db = SynapseDB()
+                embedding_service = FastEmbeddingService()
+                
+                folders = db.get_all_folders()
+                folder_status = []
+                
+                for folder_key in folders:
+                    stats = db.get_folder_stats(folder_key)
+                    embed_status = embedding_service.get_embedding_status(folder_key)
+                    
+                    folder_status.append({
+                        'name': folder_key,
+                        'display_name': folder_key.replace('_', ' ').replace('hash_', '#'),
+                        'total_docs': stats['completed_docs'],
+                        'pending_docs': stats['pending_docs'],
+                        'failed_docs': stats['failed_docs'],
+                        'total_chunks': stats['total_chunks'],
+                        'embedded_chunks': stats['embedded_chunks'],
+                        'pending_embeddings': stats['pending_embeddings'],
+                        'completion_rate': embed_status['completion_rate']
+                    })
+                
+                return jsonify({
+                    'folders': folder_status,
+                    'total_folders': len(folders),
+                    'fast_system_available': True
+                })
+                
+            except ImportError:
+                # Fallback to basic folder listing if database system not available
+                data_dir = Path('Data')
+                folders = []
+                
+                if data_dir.exists():
+                    for folder_path in data_dir.iterdir():
+                        if folder_path.is_dir() and not folder_path.name.startswith('.'):
+                            file_count = len([f for f in folder_path.rglob('*') if f.is_file() and not f.name.startswith('.')])
+                            folders.append({
+                                'name': folder_path.name,
+                                'display_name': folder_path.name,
+                                'total_docs': file_count,
+                                'pending_docs': 0,
+                                'failed_docs': 0,
+                                'total_chunks': 0,
+                                'embedded_chunks': 0,
+                                'pending_embeddings': 0,
+                                'completion_rate': 0
+                            })
+                
+                return jsonify({
+                    'folders': folders,
+                    'total_folders': len(folders),
+                    'fast_system_available': False
+                })
+        
+        except Exception as e:
+            logging.error(f"Status error: {e}")
+            return jsonify({'error': str(e)}), 500
+
+    @app.get("/api/upload/progress/<folder_key>")
+    def get_upload_progress(folder_key):
+        """Get detailed upload and processing progress for a specific folder."""
+        try:
+            from pipeline.database import SynapseDB
+            from pipeline.fast_embed import FastEmbeddingService
+            
+            db = SynapseDB()
+            embedding_service = FastEmbeddingService()
+            
+            # Get folder statistics
+            stats = db.get_folder_stats(folder_key)
+            embed_status = embedding_service.get_embedding_status(folder_key)
+            
+            # Calculate progress percentages
+            parsing_progress = 0
+            if stats['completed_docs'] + stats['pending_docs'] > 0:
+                parsing_progress = (stats['completed_docs'] / (stats['completed_docs'] + stats['pending_docs'])) * 100
+            
+            embedding_progress = embed_status['completion_rate']
+            
+            # Overall progress (weighted average)
+            overall_progress = (parsing_progress * 0.3) + (embedding_progress * 0.7)
+            
+            return jsonify({
+                'folder': folder_key,
+                'parsing': {
+                    'completed': stats['completed_docs'],
+                    'pending': stats['pending_docs'],
+                    'failed': stats['failed_docs'],
+                    'progress': parsing_progress
+                },
+                'embedding': {
+                    'completed': stats['embedded_chunks'],
+                    'pending': stats['pending_embeddings'],
+                    'total': stats['total_chunks'],
+                    'progress': embedding_progress
+                },
+                'overall_progress': overall_progress,
+                'status': 'processing' if stats['pending_docs'] > 0 or stats['pending_embeddings'] > 0 else 'complete'
+            })
+        
+        except ImportError:
+            return jsonify({'error': 'Fast processing system not available'}), 500
+        except Exception as e:
+            logging.error(f"Progress check error: {e}")
+            return jsonify({'error': str(e)}), 500
+
+    @app.post("/api/process/<folder_key>")
+    def trigger_processing(folder_key):
+        """Manually trigger processing for a specific folder."""
+        try:
+            from pipeline.database import SynapseDB
+            from pipeline.fast_embed import FastEmbeddingService
+            
+            db = SynapseDB()
+            embedding_service = FastEmbeddingService()
+            
+            # Process the folder immediately
+            processed = embedding_service.process_folder_immediately(folder_key)
+            
+            return jsonify({
+                'success': True,
+                'message': f'Processed {processed} chunks for folder {folder_key}',
+                'processed_count': processed
+            })
+        
+        except ImportError:
+            return jsonify({
+                'success': False, 
+                'error': 'Fast processing system not available. Run: pip install sqlite3'
+            }), 500
+        except Exception as e:
+            logging.error(f"Processing trigger error: {e}")
+            return jsonify({'error': str(e)}), 500
+
     app.run(host="127.0.0.1", port=7860, debug=False)
     return 0
 
@@ -1409,7 +1732,7 @@ def main() -> int:
         
         if not knowledge_bases:
             print("No knowledge bases found. Run folder-based initialization first:")
-            print("  python initialize_folders.py")
+            print("  python initialize_fast.py")
             return 1
         
         print("Available Knowledge Bases:")
@@ -1481,7 +1804,7 @@ def main() -> int:
             available_kbs = list_available_knowledge_bases(artifacts_dir)
             if not available_kbs:
                 print(f"❌ No knowledge bases found in {artifacts_dir}")
-                print("Run 'python initialize_folders.py' first to create knowledge bases.")
+                print("Run 'python initialize_fast.py' first to create knowledge bases.")
                 return 1
             
             # Use the first available KB as default, or the specified one
@@ -1502,7 +1825,7 @@ def main() -> int:
 
     # For CLI mode, check the specific embeddings file
     if not os.path.exists(embeddings_path):
-        print(f"❌ Embeddings file not found: {embeddings_path}\nRun 'python initialize_folders.py' first.")
+        print(f"❌ Embeddings file not found: {embeddings_path}\nRun 'python initialize_fast.py' first.")
         return 1
 
     # ------------- existing CLI startup -------------
@@ -1556,7 +1879,7 @@ def main() -> int:
                     knowledge_bases = list_available_knowledge_bases(artifacts_dir)
                     
                     if not knowledge_bases:
-                        print("❌ No knowledge bases found. Run initialize_folders.py first.")
+                        print("❌ No knowledge bases found. Run initialize_fast.py first.")
                     else:
                         print(f"\n📚 Available Knowledge Bases ({len(knowledge_bases)} total):")
                         current_kb = None

@@ -80,7 +80,7 @@ graph TD
 python pipeline/parse.py --extract-images --input Data/ --output artifacts/parsed.jsonl
 
 # Folder-based processing  
-python initialize_folders.py --extract-images
+python initialize_fast.py --verbose  # Images are extracted by default
 ```
 
 ### Disable Deduplication (Save All Images)
@@ -88,7 +88,7 @@ python initialize_folders.py --extract-images
 # If you want to save all images even if they're duplicates
 python pipeline/parse.py --extract-images --disable-image-deduplication --input Data/
 
-python initialize_folders.py --extract-images --disable-image-deduplication
+python initialize_fast.py --verbose  # Images are extracted by default --disable-image-deduplication
 ```
 
 ### View Deduplication Statistics

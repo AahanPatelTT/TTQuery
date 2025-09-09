@@ -156,6 +156,70 @@ Selected: 3 knowledge bases
 ❌ Meeting_Notes (445 chunks, 3.2 MB)
 ```
 
+## 📤 **Document Upload** ⭐ **NEW**
+
+The GUI now includes a powerful document upload system for real-time knowledge base updates:
+
+### **Upload Interface**
+- **Drag & Drop**: Simply drag files onto the upload area
+- **File Browser**: Click to select multiple files at once
+- **Visual Feedback**: See selected files with icons, names, and sizes
+- **Progress Tracking**: Real-time upload progress with status updates
+
+### **Knowledge Base Management**
+- **Target Selection**: Choose which knowledge base to upload to
+- **Existing KBs**: Select from current knowledge bases
+- **New KB Creation**: Type a new name to create a fresh knowledge base
+- **Smart Organization**: Files automatically organized by folder structure
+
+### **Supported File Types**
+- **Documents**: PDF, PPTX, DOCX, TXT, MD
+- **Data**: CSV files with automatic table processing
+- **Images**: PNG, JPG, JPEG, TIFF, BMP with OCR and captioning
+
+### **Real-Time Processing**
+- **Instant Upload**: Files uploaded immediately to selected folder
+- **Auto-Reinitialization**: Automatic parsing and embedding after upload
+- **Duplicate Detection**: Prevents storing the same document twice
+- **Background Processing**: Non-blocking processing in background threads
+- **Live Progress**: Real-time progress tracking with detailed steps
+- **Status Updates**: Live feedback on parsing and embedding progress
+- **Auto-Refresh**: Knowledge base list updates automatically
+
+### **Upload Workflow**
+1. **Select Target**: Choose existing KB or create new one
+2. **Add Files**: Drag & drop or click to select documents
+3. **Review Selection**: See file list with sizes and types
+4. **Upload**: Click "Upload & Process" for instant processing
+5. **Monitor**: Watch real-time status updates
+
+### **Example Usage**
+```
+📁 Target: Technical_Specifications
+📄 Selected Files:
+   📄 new_datasheet.pdf (2.3 MB)
+   📊 performance_metrics.pptx (1.8 MB)
+   📈 benchmark_results.csv (245 KB)
+
+📤 Upload & Process → ✅ 3 files uploaded successfully
+🔄 Processing in background... → ✅ 127 new chunks added
+```
+
+### **Advanced Features**
+- **File Validation**: Automatic filtering of unsupported file types
+- **Duplicate Detection**: 
+  - Content-based: Prevents uploading files with identical content
+  - Name-based: Handles files with same names intelligently
+  - Cross-folder: Checks for duplicates across the entire knowledge base
+- **Auto-Processing**: 
+  - Immediate parsing after upload
+  - Background embedding generation
+  - Real-time progress tracking
+  - Automatic knowledge base updates
+- **Error Recovery**: Detailed error messages for failed uploads
+- **Batch Processing**: Efficient handling of multiple files simultaneously
+- **Progress Monitoring**: Live updates on parsing and embedding progress
+
 ## 💬 **Chat Interface**
 
 ### **Message Rendering**
@@ -168,6 +232,7 @@ The GUI automatically renders responses with proper formatting:
 - ✅ **Tables** with proper borders and alignment
 - ✅ **Lists** (bullet and numbered)
 - ✅ **Links** (clickable)
+- ✅ **Collapsible Sources** ⭐ **NEW**: Sources hidden by default with expandable dropdown
 
 **Example Rendered Output**:
 ```markdown
@@ -211,6 +276,32 @@ Retrieval info: {
   generation_time_s: 2.34,
   sources_count: 8
 }
+```
+
+### **Collapsible Sources** ⭐ **NEW**
+
+The GUI now features a cleaner interface with **collapsible source citations**:
+
+**Benefits**:
+- **Cleaner Interface**: Sources are hidden by default to reduce clutter
+- **On-Demand Access**: Click the "📚 Sources" button to expand citations
+- **Smooth Animations**: Elegant expand/collapse transitions
+- **Persistent State**: Each message has its own expandable sources section
+
+**Usage**:
+1. **Ask a Question**: Get your answer as usual
+2. **View Sources**: Click the "📚 Sources ▼" button at the bottom of each response
+3. **Expand/Collapse**: Toggle sources visibility as needed
+4. **Multiple Messages**: Each message has independent source controls
+
+**Example**:
+```
+AI Response: The Alexandria processor features a 2.5 GHz clock speed...
+
+[📚 Sources ▼]  ← Click to expand
+└── [1] alexandria_specs.pdf (page 15)
+    [2] performance_metrics.pptx (slide 3)
+    [3] technical_overview.md (section 2.1)
 ```
 
 ## 🎯 **Advanced Usage**

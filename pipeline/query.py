@@ -759,7 +759,7 @@ def interactive_knowledge_base_selector(artifacts_dir: str) -> Optional[Dict[str
     
     if not knowledge_bases:
         print("❌ No knowledge bases found. Run folder-based initialization first:")
-        print("   python initialize_folders.py")
+        print("   python initialize_fast.py")
         return None
     
     print("\n" + "="*80)
@@ -825,7 +825,7 @@ def main(argv: List[str] | None = None) -> int:
         
         if not knowledge_bases:
             print("No knowledge bases found. Run folder-based parsing and embedding first:")
-            print("  python initialize_folders.py")
+            print("  python initialize_fast.py")
             return 1
         
         print("Available Knowledge Bases:")

@@ -54,7 +54,16 @@ brew install libmagic poppler tesseract
 python3 --version
 ```
 
-### **1. Installation & Setup**
+### **🚀 Easy Launch (Automated Setup)** ⭐ **NEW**
+```bash
+# One-command launch with automatic setup
+./launch.sh --gui     # Launch web GUI with auto-setup
+./launch.sh --fast    # Fast incremental initialization (recommended)
+./launch.sh --status  # Check processing status
+./launch.sh           # Launch CLI interface with auto-setup
+```
+
+### **1. Manual Installation & Setup**
 ```bash
 # Clone and setup environment
 git clone <repository-url>
@@ -90,11 +99,11 @@ Add desired files in a simple (.csv/.md) or regular formats like .pdf, .pptx, .d
 # Single knowledge base (traditional approach)
 python initialize.py
 
-# Folder-based knowledge bases (recommended for multiple domains)
-python initialize_folders.py
+# Fast incremental initialization (recommended)
+python initialize_fast.py
 
 # Advanced options
-python initialize_folders.py --provider openai --verbose --force-reprocess
+python initialize_fast.py --embed-provider openai --verbose --cleanup
 ```
 
 The initialization script:
@@ -105,7 +114,22 @@ The initialization script:
 
 ### **4. Start Chatting!**
 
-**Option A: Command Line Interface**
+**🚀 Recommended: Use Launch Script** ⭐ **NEW**
+```bash
+# Fast incremental initialization (recommended for updates)
+./launch.sh --fast
+
+# Launch web GUI (handles all setup automatically)
+./launch.sh --gui
+
+# Check processing status
+./launch.sh --status
+
+# Launch CLI interface (handles all setup automatically) 
+./launch.sh
+```
+
+**Option A: Command Line Interface (Manual)**
 ```bash
 # Launch interactive CLI chat interface
 python chat.py
@@ -118,7 +142,7 @@ python chat.py --select-kb
 python chat.py --verbose --session research_session.json
 ```
 
-**Option B: Web GUI Interface** ⭐ **NEW**
+**Option B: Web GUI Interface (Manual)** ⭐ **NEW**
 ```bash
 # Launch modern web-based GUI
 python chat.py --test_gui
@@ -126,11 +150,67 @@ python chat.py --test_gui
 # Then open http://127.0.0.1:7860 in your browser
 ```
 
-📖 **See [CONFIG_SESSION_FEATURES.md](CONFIG_SESSION_FEATURES.md) for complete web interface documentation**
+**Option C: MCP Server Interface** ⭐ **NEW**
+```bash
+# Launch MCP server (for AI model integration)
+./launch.sh --mcp              # Both HTTP and WebSocket
+./launch.sh --mcp-http         # HTTP only (port 3000)
+
+# Or manually:
+python mcp_server.py --transport both --http-port 3000 --ws-port 3001
+
+# Test the MCP server
+python mcp_client_example.py --demo
+```
+
+📖 **[Complete MCP Documentation →](Docs/MCP_OVERVIEW.md)**
+
+📖 **See [CONFIG_SESSION_FEATURES.md](Docs/CONFIG_SESSION_FEATURES.md) for complete web interface documentation**
+
+## ⚡ **Fast Incremental Updates** ⭐ **NEW**
+
+Synapse now includes a **database-driven incremental system** that makes updates **10-100x faster**:
+
+### **🔥 Key Benefits**
+- **Only processes changed files** - skips unchanged documents automatically
+- **Real-time embedding generation** - background processing for instant updates  
+- **Database persistence** - no more slow file scanning
+- **Web upload interface** - drag & drop documents for instant processing
+- **Status monitoring** - see processing progress in real-time
+
+### **🚀 Usage**
+```bash
+# Fast incremental initialization (recommended)
+./launch.sh --fast
+
+# Check what's being processed
+./launch.sh --status
+
+# Advanced: Direct script usage
+python initialize_fast.py                    # Process all folders
+python initialize_fast.py --folder "MyDocs"  # Process specific folder  
+python initialize_fast.py --status           # Show detailed status
+
+# Web upload interface (real-time document processing)
+python web_upload.py                         # Start web server at http://localhost:5000
+```
+
+### **📊 How It Works**
+1. **Document Tracking**: SQLite database tracks file changes (mtime, size, hash)
+2. **Incremental Parsing**: Only parses new/modified files
+3. **Background Embedding**: Automatic embedding generation in background threads
+4. **Smart Caching**: Database-driven caching eliminates slow file scans
+5. **Real-time Updates**: Upload documents via web interface for instant processing
+
+### **🔄 Migration from Old System**
+The new system is **fully compatible** with existing setups:
+- First run will migrate existing files to database
+- Old file-based caching still works as fallback
+- All existing knowledge bases remain accessible
 
 ## 💬 **Chat Interface Guide**
 
-> 🌐 **For Web GUI users**: See [GUI.md](GUI.md) for complete web interface documentation  
+> 🌐 **For Web GUI users**: See [GUI.md](Docs/GUI.md) for complete web interface documentation  
 > 📟 **CLI users**: Continue reading below for command-line interface guide
 
 ### **Persistent Memory System**
@@ -320,22 +400,25 @@ python pipeline/parse.py --cache-path "custom/cache.pkl"
 
 ## 🌐 **Interface Comparison**
 
-| Feature | CLI | Web GUI |
-|---------|-----|---------|
-| **Conversation Memory** | ✅ | ✅ |
-| **Session Management** | ✅ | ✅ Enhanced |
-| **Verbose Mode** | ✅ | ✅ Console |
-| **Configuration** | Command-line args | ✅ Real-time |
-| **Markdown Rendering** | Plain text | ✅ Rich HTML |
-| **Real-time Parameter Tuning** | ❌ | ✅ |
-| **Visual Feedback** | Text-based | ✅ Modern UI |
-| **Export Options** | JSON | ✅ JSON + UI |
-| **Knowledge Base Selection** | Commands | ✅ Checkboxes |
-| **Multi-KB Search** | ❌ | ✅ Cross-KB Results |
-| **Session Configs** | ❌ | ✅ |
-| **Default Configs** | ❌ | ✅ |
+| Feature | CLI | Web GUI | MCP Server |
+|---------|-----|---------|------------|
+| **Conversation Memory** | ✅ | ✅ | ✅ |
+| **Session Management** | ✅ | ✅ Enhanced | ✅ Full API |
+| **Verbose Mode** | ✅ | ✅ Console | ✅ Configurable |
+| **Configuration** | Command-line args | ✅ Real-time | ✅ Programmatic |
+| **Markdown Rendering** | Plain text | ✅ Rich HTML | ✅ JSON Response |
+| **Real-time Parameter Tuning** | ❌ | ✅ | ✅ |
+| **Visual Feedback** | Text-based | ✅ Modern UI | ✅ Structured Data |
+| **Export Options** | JSON | ✅ JSON + UI | ✅ Full Export API |
+| **Knowledge Base Selection** | Commands | ✅ Checkboxes | ✅ API Switching |
+| **Multi-KB Search** | ❌ | ✅ Cross-KB Results | ✅ |
+| **Session Configs** | ❌ | ✅ | ✅ |
+| **Default Configs** | ❌ | ✅ | ✅ |
+| **AI Integration** | ❌ | ❌ | ✅ **MCP Protocol** |
+| **Transport Options** | ❌ | HTTP Only | ✅ **HTTP + WebSocket** |
 
-📖 **[Detailed GUI Documentation →](CONFIG_SESSION_FEATURES.md)**
+📖 **[Web GUI Documentation →](Docs/CONFIG_SESSION_FEATURES.md)**  
+📖 **[MCP Server Documentation →](Docs/MCP_OVERVIEW.md)**
 
 ## 📊 **Output Artifacts**
 
@@ -384,6 +467,6 @@ python pipeline/parse.py --cache-path "custom/cache.pkl"
 - **Dependencies**: Install `PyMuPDF` and `python-pptx` for image extraction: `pip install PyMuPDF python-pptx`
 
 ### **Knowledge Base Selection** ⭐ **NEW**
-- **No knowledge bases found**: Run `python initialize_folders.py` to create folder-based knowledge bases
+- **No knowledge bases found**: Run `python initialize_fast.py` to create folder-based knowledge bases
 - **Wrong knowledge base**: Use `python chat.py --list-kb` to see available options
 - **Switching knowledge bases**: Use `/switch-kb` command in chat or restart with `--kb` flag

@@ -172,18 +172,18 @@ check_environment_vars() {
 initialize_knowledge_base() {
     print_status "Initializing knowledge base..."
     
-    # Check if artifacts already exist
-    if [ -f "artifacts/embedded_with_images.npz" ] && [ -f "artifacts/chunked_with_images.jsonl" ]; then
-        print_status "Knowledge base artifacts found. Skipping initialization."
-        print_status "To force re-initialization, run: python initialize.py --force-reprocess"
-    else
-        print_status "Running knowledge base initialization..."
-        python initialize.py
+    # Use fast initialization by default
+    print_status "Running fast incremental initialization..."
+    python initialize_fast.py --verbose
         
-        if [ $? -eq 0 ]; then
-            print_success "Knowledge base initialized successfully"
-        else
-            print_error "Knowledge base initialization failed"
+    
+    if [ $? -eq 0 ]; then
+        print_success "Knowledge base initialized successfully"
+    else
+        print_error "Knowledge base initialization failed"
+        print_status "Falling back to legacy initialization..."
+        python initialize.py
+        if [ $? -ne 0 ]; then
             exit 1
         fi
     fi
@@ -193,14 +193,50 @@ initialize_knowledge_base() {
 launch_app() {
     print_status "Launching Synapse application..."
     
-    # Check if GUI mode is requested
-    if [ "$1" = "--gui" ] || [ "$1" = "-g" ]; then
-        print_status "Starting web GUI interface..."
-        python chat.py --test_gui
-    else
-        print_status "Starting CLI interface..."
-        python chat.py
-    fi
+    # Check which mode is requested
+    case "$1" in
+        "--gui"|"-g"|"gui")
+            print_status "Starting web GUI interface..."
+            python chat.py --test_gui
+            ;;
+        "fast")
+            print_status "Running fast incremental initialization..."
+            python initialize_fast.py --verbose
+            ;;
+        "status")
+            print_status "Checking processing status..."
+            python initialize_fast.py --status
+            ;;
+        "upload")
+            print_status "Starting web upload server..."
+            echo "📍 URL: http://localhost:5000"
+            echo "⏹️  Press Ctrl+C to stop"
+            python web_upload.py
+            ;;
+        "mcp")
+            print_status "Starting MCP server (both HTTP and WebSocket)..."
+            echo "📍 HTTP: http://localhost:3000/mcp"
+            echo "📍 WebSocket: ws://localhost:3001"
+            echo "⏹️  Press Ctrl+C to stop"
+            exec ./start_mcp_server.sh
+            ;;
+        "mcp-http")
+            print_status "Starting MCP server (HTTP only)..."
+            echo "📍 URL: http://localhost:3000/mcp"
+            echo "⏹️  Press Ctrl+C to stop"
+            python mcp_server.py --transport http --port 3000
+            ;;
+        "mcp-websocket")
+            print_status "Starting MCP server (WebSocket only)..."
+            echo "📍 URL: ws://localhost:3001"
+            echo "⏹️  Press Ctrl+C to stop"
+            python mcp_server.py --transport websocket --port 3001
+            ;;
+        *)
+            print_status "Starting CLI interface..."
+            python chat.py
+            ;;
+    esac
 }
 
 # Main execution
@@ -218,7 +254,7 @@ main() {
     echo ""
     
     # Check if we're in the right directory
-    if [ ! -f "chat.py" ] || [ ! -f "initialize.py" ]; then
+    if [ ! -f "chat.py" ] || [ ! -f "initialize_fast.py" ]; then
         print_error "This script must be run from the Synapse project root directory"
         print_error "Please navigate to the Synapse directory and try again"
         exit 1
@@ -253,13 +289,41 @@ case "${1:-}" in
         echo ""
         echo "Options:"
         echo "  --gui, -g     Launch the web GUI interface"
+        echo "  --fast        Use fast incremental initialization (recommended)"
+        echo "  --status      Show processing status"
+        echo "  --upload      Start web upload server for real-time document uploads"
+        echo "  --mcp         Start MCP server (both HTTP and WebSocket transports)"
+        echo "  --mcp-http    Start MCP server (HTTP transport only)"
+        echo "  --mcp-ws      Start MCP server (WebSocket transport only)"
         echo "  --help, -h    Show this help message"
         echo ""
         echo "Examples:"
         echo "  $0              # Launch CLI interface"
         echo "  $0 --gui        # Launch web GUI interface"
-        echo "  $0 -g           # Launch web GUI interface"
+        echo "  $0 --fast       # Fast incremental initialization"
+        echo "  $0 --status     # Show processing status"
+        echo "  $0 --upload     # Start web upload server"
+        echo "  $0 --mcp        # Start MCP server (HTTP + WebSocket)"
+        echo "  $0 --mcp-http   # Start MCP server (HTTP only)"
         exit 0
+        ;;
+    --fast)
+        main "fast"
+        ;;
+    --status)
+        main "status"
+        ;;
+    --upload)
+        main "upload"
+        ;;
+    --mcp)
+        main "mcp"
+        ;;
+    --mcp-http)
+        main "mcp-http"
+        ;;
+    --mcp-ws|--mcp-websocket)
+        main "mcp-websocket"
         ;;
     *)
         main "$1"

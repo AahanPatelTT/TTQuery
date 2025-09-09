@@ -1,0 +1,40 @@
+{
+  "server": {
+    "name": "synapse-rag-server",
+    "version": "1.0.0",
+    "description": "Synapse RAG Knowledge Base MCP Server"
+  },
+  "transports": {
+    "http": {
+      "enabled": true,
+      "port": 3000,
+      "cors": true,
+      "debug": false
+    },
+    "websocket": {
+      "enabled": true,
+      "port": 3001
+    }
+  },
+  "knowledge_base": {
+    "artifacts_dir": "artifacts",
+    "default_kb": null,
+    "auto_initialize": true
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "mcp_server.log",
+    "max_file_size": "10MB",
+    "backup_count": 5
+  },
+  "session": {
+    "auto_save": true,
+    "session_timeout": 3600,
+    "max_sessions": 100
+  },
+  "security": {
+    "allowed_origins": ["*"],
+    "bind_address": "0.0.0.0",
+    "require_auth": false
+  }
+}

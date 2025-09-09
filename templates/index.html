@@ -208,6 +208,81 @@
                         No knowledge bases selected
                     </div>
                 </div>
+
+                <!-- Document Upload Section -->
+                <div class="section">
+                    <div class="section-header">
+                        Document Upload
+                        <span class="help-icon">?
+                            <div class="tooltip">Upload documents to add them to your knowledge bases. Files are processed automatically and embeddings are generated in the background</div>
+                        </span>
+                    </div>
+                    <div class="upload-container">
+                        <div class="upload-form">
+                            <div class="param-row">
+                                <label for="upload-folder">
+                                    Target Knowledge Base
+                                    <span class="help-icon">?
+                                        <div class="tooltip">Select which knowledge base to add the documents to. You can also type a new name to create a new knowledge base</div>
+                                    </span>
+                                </label>
+                                <div class="row" style="gap: 8px;">
+                                    <select id="upload-folder" style="flex: 1;">
+                                        <option value="">Select or type new...</option>
+                                    </select>
+                                    <input type="text" id="custom-folder" placeholder="New KB name" style="flex: 1; display: none;">
+                                </div>
+                            </div>
+                            
+                            <div class="param-row">
+                                <label for="file-input">
+                                    Select Files
+                                    <span class="help-icon">?
+                                        <div class="tooltip">Supported formats: PDF, PPTX, DOCX, TXT, MD, CSV, PNG, JPG, JPEG, TIFF, BMP</div>
+                                    </span>
+                                </label>
+                                <div class="file-upload-area" id="file-upload-area">
+                                    <input type="file" id="file-input" multiple accept=".pdf,.pptx,.docx,.txt,.md,.csv,.png,.jpg,.jpeg,.tiff,.bmp" style="display: none;">
+                                    <div class="upload-prompt">
+                                        <div class="upload-icon">📁</div>
+                                        <div>Click to select files or drag & drop</div>
+                                        <div class="upload-hint">Supports: PDF, PPTX, DOCX, TXT, MD, CSV, Images</div>
+                                    </div>
+                                    <div id="file-list" class="file-list" style="display: none;"></div>
+                                </div>
+                            </div>
+                            
+                            <div class="param-row">
+                                <button id="upload-btn" class="upload-button" disabled>
+                                    📤 Upload & Process
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div id="upload-progress" class="upload-progress" style="display: none;">
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="progress-fill"></div>
+                            </div>
+                            <div class="progress-text" id="progress-text">Uploading...</div>
+                            <div class="progress-details" id="progress-details" style="display: none;">
+                                <div class="progress-step">
+                                    <span class="step-label">📤 Upload:</span>
+                                    <span class="step-status" id="upload-status">Complete</span>
+                                </div>
+                                <div class="progress-step">
+                                    <span class="step-label">📝 Parsing:</span>
+                                    <span class="step-status" id="parsing-status">In progress...</span>
+                                </div>
+                                <div class="progress-step">
+                                    <span class="step-label">🔮 Embeddings:</span>
+                                    <span class="step-status" id="embedding-status">Pending...</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div id="upload-messages" class="upload-messages"></div>
+                    </div>
+                </div>
             </div>
         </div>
 

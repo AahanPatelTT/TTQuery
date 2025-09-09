@@ -4,7 +4,7 @@ This guide explains how to use the enhanced knowledge base selection features in
 
 ## Overview
 
-After running `python initialize_folders.py`, you'll have multiple specialized knowledge bases, one for each folder in your `Data/` directory. You can now select which knowledge base to use for your queries.
+After running `python initialize_fast.py`, you'll have multiple specialized knowledge bases, one for each folder in your `Data/` directory. You can now select which knowledge base to use for your queries.
 
 ## Available Commands
 

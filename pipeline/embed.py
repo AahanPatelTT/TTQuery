@@ -752,6 +752,26 @@ def process_folder_based_embedding(args) -> int:
     """Process multiple folder-based chunked files."""
     import glob
     
+    # Initialize database for fast incremental embedding
+    db = None
+    fast_embed_service = None
+    if not args.no_cache:
+        try:
+            from .database import SynapseDB
+            from .fast_embed import FastEmbeddingService
+            db = SynapseDB()
+            fast_embed_service = FastEmbeddingService(
+                provider=args.provider,
+                model_name=args.embed_model if args.provider == "local" else 
+                          args.openai_embed_model if args.provider == "openai" else
+                          args.colbert_model if args.provider == "colbert" else
+                          args.bert_model,
+                batch_size=64
+            )
+            logging.info("Using database-driven incremental embedding")
+        except ImportError:
+            logging.warning("Fast embedding service not available, falling back to standard processing")
+    
     # Find all chunked files matching the pattern
     artifacts_dir = os.path.dirname(os.path.abspath(args.input))
     pattern = os.path.join(artifacts_dir, "chunked_*.jsonl")
@@ -825,6 +845,53 @@ def process_folder_based_embedding(args) -> int:
         
         logging.info("Processing %s -> %s", basename, os.path.basename(embed_file))
         
+        # Try fast database-driven embedding first
+        if fast_embed_service and db:
+            try:
+                # Process pending embeddings for this folder
+                processed_count = fast_embed_service.process_folder_immediately(folder_name)
+                
+                # Get all chunks with embeddings from database
+                all_chunks = db.get_all_chunks_for_folder(folder_name)
+                embedded_chunks = [chunk for chunk in all_chunks if 
+                                 chunk.get('embedding_summary') and chunk.get('embedding_full')]
+                
+                if embedded_chunks:
+                    # Convert to the format expected by write_jsonl
+                    outputs = []
+                    for chunk in embedded_chunks:
+                        output_record = {
+                            'id': chunk['id'],
+                            'document_id': chunk['document_id'],
+                            'source_path': chunk['source_path'],
+                            'source_type': chunk['source_type'],
+                            'metadata': chunk['metadata'],
+                            'summary_text': chunk['content'][:280],  # Approximate summary
+                            'full_text': chunk['content'],
+                            'embedding_summary': chunk['embedding_summary'],
+                            'embedding_full': chunk['embedding_full']
+                        }
+                        outputs.append(output_record)
+                    
+                    written = write_jsonl(outputs, embed_file)
+                    
+                    processed_files.append({
+                        'folder_name': folder_name,
+                        'chunked_file': chunked_file,
+                        'embed_file': embed_file,
+                        'embeddings_count': written,
+                        'cache_hit': processed_count == 0  # If no processing needed, it was cached
+                    })
+                    
+                    total_embeddings += written
+                    status = "cached" if processed_count == 0 else "processed"
+                    logging.info("Completed %s: %d embeddings (%s)", folder_name, written, status)
+                    continue
+                    
+            except Exception as e:
+                logging.warning(f"Fast embedding failed for {folder_name}, falling back to standard processing: {e}")
+        
+        # Fallback to standard embedding processing
         # Initialize folder-specific cache
         cache_path = args.cache_path or get_embed_cache_path(embed_file)
         

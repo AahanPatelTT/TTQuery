@@ -401,7 +401,7 @@ Synapse now supports creating specialized knowledge bases for each folder in you
 **Usage:**
 ```bash
 # Create folder-based knowledge bases
-python initialize_folders.py
+python initialize_fast.py
 
 # List available knowledge bases
 python chat.py --list-kb
@@ -439,10 +439,10 @@ Intelligent duplicate detection prevents saving the same image multiple times:
 **Configuration:**
 ```bash
 # Default: deduplication enabled
-python initialize_folders.py --extract-images
+python initialize_fast.py --extract-images
 
 # Disable deduplication if needed
-python initialize_folders.py --extract-images --disable-image-deduplication
+python initialize_fast.py --extract-images --disable-image-deduplication
 ```
 
 **Deduplication Statistics Example:**
