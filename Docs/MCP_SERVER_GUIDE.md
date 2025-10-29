@@ -51,6 +51,9 @@ python mcp_client_example.py --interactive
 
 # WebSocket test
 python mcp_client_example.py --transport websocket --port 3001 --interactive
+
+# Run comprehensive test suite
+python test_mcp_server.py
 ```
 
 ## 🛠️ **Available MCP Tools**

@@ -14,7 +14,7 @@ NC='\033[0m' # No Color
 
 # Function to print colored output
 print_status() {
-    echo -e "${BLUE}[MCP]${NC} $1"
+    echo -e "${BLUE}[INFO]${NC} $1"
 }
 
 print_success() {
@@ -29,15 +29,49 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# Default configuration
+# Check if we're in the right directory
+if [ ! -f "mcp_server.py" ]; then
+    print_error "This script must be run from the Synapse project root directory"
+    exit 1
+fi
+
+# Check if virtual environment exists
+if [ ! -d ".venv" ]; then
+    print_error "Virtual environment not found. Please run ./launch.sh first to set up the environment."
+    exit 1
+fi
+
+# Activate virtual environment
+print_status "Activating virtual environment..."
+source .venv/bin/activate
+
+# Load environment variables
+if [ -f ".env" ]; then
+    print_status "Loading environment variables from .env file..."
+    set -a
+    source .env
+    set +a
+    print_success "Environment variables loaded"
+else
+    print_warning "No .env file found. Make sure LITELLM_API_KEY and LITELLM_BASE_URL are set."
+fi
+
+# Check required environment variables
+if [ -z "$LITELLM_API_KEY" ] || [ -z "$LITELLM_BASE_URL" ]; then
+    print_error "Required environment variables not set:"
+    print_error "  LITELLM_API_KEY: ${LITELLM_API_KEY:+SET}"
+    print_error "  LITELLM_BASE_URL: ${LITELLM_BASE_URL:+SET}"
+    print_error "Please set these variables and try again."
+    exit 1
+fi
+
+# Parse command line arguments
 TRANSPORT="both"
 HTTP_PORT=3000
 WS_PORT=3001
-ARTIFACTS_DIR="artifacts"
 DEBUG=false
-CONFIG_FILE="mcp_config.json"
+CORS=true
 
-# Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
         --transport)
@@ -52,35 +86,30 @@ while [[ $# -gt 0 ]]; do
             WS_PORT="$2"
             shift 2
             ;;
-        --artifacts-dir)
-            ARTIFACTS_DIR="$2"
-            shift 2
-            ;;
         --debug)
             DEBUG=true
             shift
             ;;
-        --config)
-            CONFIG_FILE="$2"
-            shift 2
+        --no-cors)
+            CORS=false
+            shift
             ;;
         --help|-h)
             echo "Usage: $0 [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  --transport TRANSPORT     Transport to use (http|websocket|both) [default: both]"
-            echo "  --http-port PORT          HTTP server port [default: 3000]"
-            echo "  --ws-port PORT            WebSocket server port [default: 3001]"
-            echo "  --artifacts-dir DIR       Artifacts directory [default: artifacts]"
-            echo "  --debug                   Enable debug mode"
-            echo "  --config FILE             Configuration file [default: mcp_config.json]"
-            echo "  --help, -h                Show this help message"
+            echo "  --transport {http|websocket|both}  Transport protocol (default: both)"
+            echo "  --http-port PORT                   HTTP port (default: 3000)"
+            echo "  --ws-port PORT                     WebSocket port (default: 3001)"
+            echo "  --debug                           Enable debug mode"
+            echo "  --no-cors                         Disable CORS"
+            echo "  --help, -h                        Show this help message"
             echo ""
             echo "Examples:"
-            echo "  $0                        # Start both HTTP and WebSocket servers"
-            echo "  $0 --transport http       # Start only HTTP server"
-            echo "  $0 --debug               # Start with debug logging"
-            echo "  $0 --http-port 8080      # Use custom HTTP port"
+            echo "  $0                                # Start with both transports"
+            echo "  $0 --transport http               # HTTP only"
+            echo "  $0 --transport websocket          # WebSocket only"
+            echo "  $0 --debug                        # Debug mode"
             exit 0
             ;;
         *)
@@ -91,7 +120,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Print banner
+# Display startup information
 echo ""
 echo "██████╗ ██████╗  ██████╗      ██╗███████╗ ██████╗████████╗"
 echo "██╔══██╗██╔══██╗██╔═══██╗     ██║██╔════╝██╔════╝╚══██╔══╝"
@@ -104,110 +133,29 @@ echo "              MCP SERVER STARTUP"
 echo "================================================================"
 echo ""
 
-# Check if we're in the right directory
-if [ ! -f "mcp_server.py" ]; then
-    print_error "mcp_server.py not found. Please run from the Synapse root directory."
-    exit 1
-fi
-
-# Check Python version
-python_version=$(python3 --version 2>&1 | awk '{print $2}')
-print_status "Python version: $python_version"
-
-# Check if virtual environment is activated
-if [[ "$VIRTUAL_ENV" != "" ]]; then
-    print_status "Virtual environment: $VIRTUAL_ENV"
-else
-    print_warning "No virtual environment detected. Consider activating .venv"
-fi
-
-# Check required environment variables
-missing_vars=()
-if [ -z "$LITELLM_API_KEY" ]; then
-    missing_vars+=("LITELLM_API_KEY")
-fi
-if [ -z "$LITELLM_BASE_URL" ]; then
-    missing_vars+=("LITELLM_BASE_URL")
-fi
-
-if [ ${#missing_vars[@]} -gt 0 ]; then
-    print_error "Missing required environment variables: ${missing_vars[*]}"
-    print_status "Please set:"
-    echo "  export LITELLM_API_KEY=your_api_key"
-    echo "  export LITELLM_BASE_URL=https://litellm-proxy--tenstorrent.workload.tenstorrent.com/"
-    exit 1
-fi
-
-print_success "Environment variables configured"
-
-# Check if artifacts directory exists
-if [ ! -d "$ARTIFACTS_DIR" ]; then
-    print_warning "Artifacts directory '$ARTIFACTS_DIR' not found"
-    print_status "Running fast initialization to create knowledge base..."
-    python3 initialize_fast.py --verbose
-    if [ $? -ne 0 ]; then
-        print_error "Failed to initialize knowledge base"
-        exit 1
-    fi
-fi
-
-# Check for available knowledge bases
-kb_count=$(find "$ARTIFACTS_DIR" -name "embedded_*.jsonl" 2>/dev/null | wc -l)
-if [ "$kb_count" -eq 0 ]; then
-    print_warning "No knowledge bases found in '$ARTIFACTS_DIR'"
-    print_status "You may need to run initialization first:"
-    echo "  python3 initialize_fast.py"
-else
-    print_success "Found $kb_count knowledge base(s)"
-fi
-
-# Check dependencies
-print_status "Checking MCP server dependencies..."
-python3 -c "
-try:
-    import flask, websockets, json, asyncio
-    print('✅ All dependencies available')
-except ImportError as e:
-    print(f'❌ Missing dependency: {e}')
-    print('Run: pip install flask flask-cors websockets')
-    exit(1)
-" || exit 1
-
-# Display server configuration
-print_status "Server configuration:"
-echo "  Transport: $TRANSPORT"
-if [[ "$TRANSPORT" == "http" || "$TRANSPORT" == "both" ]]; then
-    echo "  HTTP Port: $HTTP_PORT"
-    echo "  HTTP URL: http://localhost:$HTTP_PORT/mcp"
-fi
-if [[ "$TRANSPORT" == "websocket" || "$TRANSPORT" == "both" ]]; then
-    echo "  WebSocket Port: $WS_PORT"
-    echo "  WebSocket URL: ws://localhost:$WS_PORT"
-fi
-echo "  Artifacts: $ARTIFACTS_DIR"
-echo "  Debug: $DEBUG"
-
-# Build command
-CMD_ARGS=(
-    "--transport" "$TRANSPORT"
-    "--artifacts-dir" "$ARTIFACTS_DIR"
-)
-
-if [[ "$TRANSPORT" == "http" || "$TRANSPORT" == "both" ]]; then
-    CMD_ARGS+=("--http-port" "$HTTP_PORT")
-fi
-
-if [[ "$TRANSPORT" == "websocket" || "$TRANSPORT" == "both" ]]; then
-    CMD_ARGS+=("--ws-port" "$WS_PORT")
-fi
-
-if [ "$DEBUG" = true ]; then
-    CMD_ARGS+=("--debug")
-fi
-
-print_status "Starting MCP server..."
-echo "Command: python3 mcp_server.py ${CMD_ARGS[*]}"
+print_status "Starting MCP server with configuration:"
+print_status "  Transport: $TRANSPORT"
+print_status "  HTTP Port: $HTTP_PORT"
+print_status "  WebSocket Port: $WS_PORT"
+print_status "  Debug Mode: $DEBUG"
+print_status "  CORS Enabled: $CORS"
 echo ""
 
-# Start the server
-exec python3 mcp_server.py "${CMD_ARGS[@]}"
+# Start the MCP server
+print_status "Starting MCP server..."
+echo "📍 HTTP: http://localhost:$HTTP_PORT/mcp"
+echo "📍 WebSocket: ws://localhost:$WS_PORT"
+echo "⏹️  Press Ctrl+C to stop"
+echo ""
+
+# Build the command
+CMD="python mcp_server.py --transport $TRANSPORT --http-port $HTTP_PORT --ws-port $WS_PORT"
+if [ "$DEBUG" = true ]; then
+    CMD="$CMD --debug"
+fi
+if [ "$CORS" = false ]; then
+    CMD="$CMD --no-cors"
+fi
+
+# Execute the command
+exec $CMD

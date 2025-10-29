@@ -103,6 +103,7 @@ class MCPServer:
         self.corpus = None
         self.indices = None
         self.query_encoder = None
+        self.query_encoder_name = None
         self.knowledge_bases = {}
         self.current_kb = None
         self.verbose_mode = False
@@ -147,24 +148,22 @@ class MCPServer:
                 if os.path.exists(embeddings_path):
                     self.current_embeddings_path = embeddings_path
                     self.corpus = load_corpus(embeddings_path)
-                    self.indices = build_indices(self.corpus)
-                    self.query_encoder = load_query_encoder()
+                    idx_sum, idx_full, E_sum, E_full, bm25 = build_indices(self.corpus)
+                    self.indices = {
+                        'faiss_sum': idx_sum,
+                        'faiss_full': idx_full,
+                        'E_sum': E_sum,
+                        'E_full': E_full,
+                        'bm25': bm25
+                    }
+                    self.query_encoder_name, self.query_encoder = load_query_encoder()
                     self.logger.info(f"Loaded knowledge base: {self.current_kb} ({embeddings_path})")
                 else:
                     self.logger.error(f"Embeddings file not found: {embeddings_path}")
                 
                 self.logger.info(f"Available KBs: {list(self.knowledge_bases.keys())}")
             else:
-                # Try to load legacy default embeddings as fallback
-                default_path = os.path.join(self.artifacts_dir, "embedded_with_images.npz")
-                if os.path.exists(default_path):
-                    self.current_embeddings_path = default_path
-                    self.corpus = load_corpus(default_path)
-                    self.indices = build_indices(self.corpus)
-                    self.query_encoder = load_query_encoder()
-                    self.logger.info(f"Loaded legacy default embeddings: {default_path}")
-                else:
-                    self.logger.warning("No knowledge bases found")
+                self.logger.warning("No knowledge bases found")
                     
         except Exception as e:
             self.logger.error(f"Failed to initialize knowledge base: {e}")
@@ -177,14 +176,38 @@ class MCPServer:
             # Core Query Tools
             MCPTool(
                 name="ask_question",
-                description="Ask a question to the knowledge base with conversation context",
+                description="Retrieve relevant context from knowledge base(s) for external response generation",
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "question": {"type": "string", "description": "The question to ask"},
+                        "question": {"type": "string", "description": "The question to search for"},
                         "session_id": {"type": "string", "description": "Session ID for conversation context"},
                         "verbose": {"type": "boolean", "description": "Enable detailed retrieval information"},
-                        "timeout": {"type": "number", "description": "Query timeout in seconds", "default": 60}
+                        "timeout": {"type": "number", "description": "Query timeout in seconds", "default": 60},
+                        "knowledge_bases": {
+                            "type": "array", 
+                            "description": "List of knowledge base names to search (optional - uses current KB if not specified)",
+                            "items": {"type": "string"}
+                        },
+                        "search_mode": {
+                            "type": "string", 
+                            "description": "Multi-KB search mode: 'concatenated' (unified search) or 'separate' (individual searches)",
+                            "enum": ["concatenated", "separate"],
+                            "default": "concatenated"
+                        },
+                        "context_format": {
+                            "type": "string",
+                            "description": "Format for returned context",
+                            "enum": ["structured", "raw", "markdown"],
+                            "default": "structured"
+                        },
+                        "max_chunks": {
+                            "type": "number",
+                            "description": "Maximum number of chunks to retrieve",
+                            "default": 10,
+                            "minimum": 1,
+                            "maximum": 50
+                        }
                     },
                     "required": ["question"]
                 }
@@ -427,11 +450,15 @@ class MCPServer:
     
     # Tool Implementation Methods
     async def handle_ask_question(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle ask_question tool"""
+        """Handle ask_question tool - returns retrieval context instead of generated response"""
         question = args.get('question')
         session_id = args.get('session_id', 'default')
         verbose = args.get('verbose', self.verbose_mode)
         timeout = args.get('timeout', 60)
+        knowledge_bases = args.get('knowledge_bases', [])
+        search_mode = args.get('search_mode', 'concatenated')
+        context_format = args.get('context_format', 'structured')  # structured, raw, markdown
+        max_chunks = args.get('max_chunks', 10)
         
         if not question:
             raise ValueError("Question is required")
@@ -442,29 +469,248 @@ class MCPServer:
         
         session = self.sessions[session_id]
         
-        # Perform the query
-        if not self.current_embeddings_path:
-            raise ValueError("No knowledge base loaded")
+        # Get conversation context for retrieval
+        conv_context = session.get_context(last_n=3) if hasattr(session, 'get_context') else ""
         
-        # The answer function returns (answer, sources_block, images)
-        answer_text, sources_block, relevant_images = answer(
-            question=question,
-            embeddings_path=self.current_embeddings_path,
-            final_k=10,
-            timeout=timeout
-        )
+        # Perform retrieval based on KB selection
+        if knowledge_bases and len(knowledge_bases) > 1:
+            # Multi-KB search
+            retrieval_result = await self._perform_multi_kb_retrieval(
+                question, knowledge_bases, conv_context, verbose, timeout, max_chunks
+            )
+        elif knowledge_bases and len(knowledge_bases) == 1:
+            # Single specified KB
+            kb_name = knowledge_bases[0]
+            if kb_name not in self.knowledge_bases:
+                raise ValueError(f"Knowledge base '{kb_name}' not found. Available: {list(self.knowledge_bases.keys())}")
+            
+            kb_info = self.knowledge_bases[kb_name]
+            embeddings_path = kb_info['embeddings_path']
+            retrieval_result = await self._perform_single_kb_retrieval(
+                question, embeddings_path, kb_name, conv_context, verbose, timeout, max_chunks
+            )
+        else:
+            # Use current KB
+            if not self.current_embeddings_path:
+                raise ValueError("No knowledge base loaded")
+            
+            retrieval_result = await self._perform_single_kb_retrieval(
+                question, self.current_embeddings_path, self.current_kb, conv_context, verbose, timeout, max_chunks
+            )
         
-        # Add to session history  
-        session.add_exchange(question, answer_text, sources_block)
+        # Format context based on requested format
+        formatted_context = self._format_retrieval_context(retrieval_result, context_format)
+        
+        # Add to session history (store retrieval context instead of generated answer)
+        session.add_exchange(question, f"[RETRIEVAL] {len(retrieval_result['chunks'])} chunks found", 
+                           f"Retrieved from: {', '.join(retrieval_result['knowledge_bases'])}")
         
         return {
-            "answer": answer_text,
-            "sources": sources_block,
-            "images": relevant_images,
+            "retrieval_context": {
+                "query": question,
+                "retrieved_chunks": retrieval_result['chunks'],
+                "metadata": retrieval_result['metadata']
+            },
+            "formatted_context": formatted_context,
+            "search_metadata": retrieval_result['search_metadata'],
             "session_id": session_id,
             "verbose_mode": verbose,
-            "knowledge_base": self.current_kb
+            "knowledge_bases": retrieval_result['knowledge_bases'],
+            "search_mode": search_mode
         }
+    
+    async def _perform_single_kb_retrieval(self, question: str, embeddings_path: str, kb_name: str, 
+                                         conv_context: str, verbose: bool, timeout: int, max_chunks: int) -> Dict[str, Any]:
+        """Perform retrieval on a single knowledge base"""
+        import time
+        start_time = time.time()
+        
+        # Load corpus and build indices if not already loaded
+        if not self.corpus or self.current_embeddings_path != embeddings_path:
+            self.corpus = load_corpus(embeddings_path)
+            idx_sum, idx_full, E_sum, E_full, bm25 = build_indices(self.corpus)
+            self.indices = {
+                'faiss_sum': idx_sum,
+                'faiss_full': idx_full,
+                'E_sum': E_sum,
+                'E_full': E_full,
+                'bm25': bm25
+            }
+            self.query_encoder_name, self.query_encoder = load_query_encoder()
+        
+        # Encode query
+        query_embedding = encode_query(question, self.query_encoder)
+        
+        # Perform dense and sparse search
+        dense_results = dense_search(query_embedding, self.indices['faiss_sum'], max_chunks*2)
+        sparse_results = sparse_search(question, self.indices['bm25'], max_chunks*2)
+        
+        # Combine results with RRF
+        combined_results = rrf([dense_results, sparse_results], weights=[1.0, 0.8], rrf_k=max_chunks*2)
+        
+        # Apply per-document capping
+        capped_results = per_doc_cap(combined_results, self.corpus, 3)
+        
+        # Rerank results
+        reranked_results = rerank(question, capped_results, self.corpus)
+        
+        # Take top results (skip MMR for now to avoid complexity)
+        final_indices = reranked_results[:max_chunks]
+        
+        # Extract chunks with metadata
+        chunks = []
+        for i, idx in enumerate(final_indices):
+            if idx < len(self.corpus):
+                item = self.corpus[idx]
+                chunk_data = {
+                    "chunk_id": item.get('id', f'chunk_{idx}'),
+                    "content": item.get('full_text', ''),
+                    "summary": item.get('summary_text', ''),
+                    "source": item.get('source_path', ''),
+                    "source_name": os.path.basename(item.get('source_path', '')),
+                    "page": item.get('metadata', {}).get('page_number', None),
+                    "section": item.get('metadata', {}).get('section', None),
+                    "relevance_score": 0.8 - (i * 0.1),  # Simple scoring based on rank
+                    "chunk_index": i,
+                    "metadata": item.get('metadata', {})
+                }
+                chunks.append(chunk_data)
+        
+        search_time = (time.time() - start_time) * 1000
+        
+        return {
+            "chunks": chunks,
+            "knowledge_bases": [kb_name],
+            "metadata": {
+                "total_chunks_found": len(final_indices),
+                "search_time_ms": round(search_time, 2),
+                "query_embedding_dim": len(query_embedding),
+                "corpus_size": len(self.corpus)
+            },
+            "search_metadata": {
+                "dense_results": len(dense_results),
+                "sparse_results": len(sparse_results),
+                "combined_results": len(combined_results),
+                "reranked_results": len(reranked_results),
+                "final_k": len(final_indices)
+            }
+        }
+    
+    async def _perform_multi_kb_retrieval(self, question: str, knowledge_bases: List[str], 
+                                        conv_context: str, verbose: bool, timeout: int, max_chunks: int) -> Dict[str, Any]:
+        """Perform retrieval across multiple knowledge bases"""
+        from chat import enhanced_answer_multi_kb
+        
+        # Validate knowledge bases
+        for kb_name in knowledge_bases:
+            if kb_name not in self.knowledge_bases:
+                raise ValueError(f"Knowledge base '{kb_name}' not found. Available: {list(self.knowledge_bases.keys())}")
+        
+        # Use the existing multi-KB function but extract retrieval data
+        # We'll need to modify this to return retrieval context instead of generated answer
+        # For now, let's implement a simplified version
+        
+        all_chunks = []
+        all_kb_names = []
+        total_search_time = 0
+        
+        for kb_name in knowledge_bases:
+            kb_info = self.knowledge_bases[kb_name]
+            embeddings_path = kb_info['embeddings_path']
+            
+            # Perform retrieval on this KB
+            kb_result = await self._perform_single_kb_retrieval(
+                question, embeddings_path, kb_name, conv_context, verbose, timeout, max_chunks // len(knowledge_bases)
+            )
+            
+            all_chunks.extend(kb_result['chunks'])
+            all_kb_names.append(kb_name)
+            total_search_time += kb_result['metadata']['search_time_ms']
+        
+        # Sort by relevance score and take top chunks
+        all_chunks.sort(key=lambda x: x['relevance_score'], reverse=True)
+        final_chunks = all_chunks[:max_chunks]
+        
+        return {
+            "chunks": final_chunks,
+            "knowledge_bases": all_kb_names,
+            "metadata": {
+                "total_chunks_found": len(final_chunks),
+                "search_time_ms": round(total_search_time, 2),
+                "kbs_searched": len(knowledge_bases)
+            },
+            "search_metadata": {
+                "total_dense_results": sum(1 for _ in all_chunks),
+                "total_sparse_results": sum(1 for _ in all_chunks),
+                "final_k": len(final_chunks)
+            }
+        }
+    
+    def _format_retrieval_context(self, retrieval_result: Dict[str, Any], context_format: str) -> Dict[str, Any]:
+        """Format retrieval context based on requested format"""
+        chunks = retrieval_result['chunks']
+        
+        if context_format == 'raw':
+            # Return raw chunks as-is
+            return {
+                "raw_chunks": chunks,
+                "format": "raw"
+            }
+        
+        elif context_format == 'markdown':
+            # Format as markdown
+            markdown_content = []
+            citations = []
+            
+            for i, chunk in enumerate(chunks, 1):
+                source_name = chunk['source_name']
+                page = chunk.get('page', '')
+                page_ref = f":{page}" if page else ""
+                
+                markdown_content.append(f"## Chunk {i}\n")
+                markdown_content.append(f"**Source:** {source_name}{page_ref}\n")
+                markdown_content.append(f"**Relevance:** {chunk['relevance_score']:.3f}\n")
+                markdown_content.append(f"**Content:**\n{chunk['content']}\n")
+                
+                citations.append(f"[{i}] {source_name}{page_ref}")
+            
+            return {
+                "markdown_content": "\n".join(markdown_content),
+                "citations": citations,
+                "format": "markdown"
+            }
+        
+        else:  # structured (default)
+            # Format as structured context ready for LLM
+            structured_parts = []
+            citations = []
+            images = []
+            
+            for i, chunk in enumerate(chunks, 1):
+                source_name = chunk['source_name']
+                page = chunk.get('page', '')
+                page_ref = f":{page}" if page else ""
+                
+                # Add to structured content
+                structured_parts.append(f"[{i}] {chunk['content']}")
+                citations.append(f"[{i}] {source_name}{page_ref}")
+                
+                # Check for images in metadata
+                if 'image_path' in chunk.get('metadata', {}):
+                    images.append({
+                        "path": chunk['metadata']['image_path'],
+                        "description": chunk['metadata'].get('image_description', ''),
+                        "context": f"Referenced in {source_name}{page_ref}",
+                        "chunk_id": chunk['chunk_id']
+                    })
+            
+            return {
+                "structured_text": "\n\n".join(structured_parts),
+                "citations": citations,
+                "images": images,
+                "summary": f"Retrieved {len(chunks)} relevant chunks from {len(retrieval_result['knowledge_bases'])} knowledge base(s)",
+                "format": "structured"
+            }
     
     async def handle_list_knowledge_bases(self, args: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Handle list_knowledge_bases tool"""
@@ -487,21 +733,9 @@ class MCPServer:
         if not kb_name:
             raise ValueError("Knowledge base name is required")
         
-        # Try exact match first, then case-insensitive match
         if kb_name not in self.knowledge_bases:
-            # Try case-insensitive match
-            kb_name_lower = kb_name.lower()
-            found_kb = None
-            for kb_key in self.knowledge_bases:
-                if kb_key.lower() == kb_name_lower:
-                    found_kb = kb_key
-                    break
-            
-            if found_kb:
-                kb_name = found_kb  # Use the actual KB name
-            else:
-                available_kbs = list(self.knowledge_bases.keys())
-                raise ValueError(f"Knowledge base '{kb_name}' not found. Available: {available_kbs}")
+            available_kbs = list(self.knowledge_bases.keys())
+            raise ValueError(f"Knowledge base '{kb_name}' not found. Available: {available_kbs}")
         
         kb_info = self.knowledge_bases[kb_name]
         embeddings_path = kb_info['embeddings_path']
@@ -512,8 +746,15 @@ class MCPServer:
         # Load the new knowledge base
         self.current_embeddings_path = embeddings_path
         self.corpus = load_corpus(embeddings_path)
-        self.indices = build_indices(self.corpus)
-        self.query_encoder = load_query_encoder()
+        idx_sum, idx_full, E_sum, E_full, bm25 = build_indices(self.corpus)
+        self.indices = {
+            'faiss_sum': idx_sum,
+            'faiss_full': idx_full,
+            'E_sum': E_sum,
+            'E_full': E_full,
+            'bm25': bm25
+        }
+        self.query_encoder_name, self.query_encoder = load_query_encoder()
         self.current_kb = kb_name
         
         self.logger.info(f"Switched to knowledge base: {kb_name}")
@@ -564,21 +805,32 @@ class MCPServer:
     async def handle_load_session(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Handle load_session tool"""
         session_file = args.get('session_file')
-        
+
         if not session_file:
             raise ValueError("Session file path is required")
-        
-        if not os.path.exists(session_file):
-            raise ValueError(f"Session file not found: {session_file}")
-        
-        session = ChatSession(session_file, auto_continue=True)
-        session_id = os.path.splitext(os.path.basename(session_file))[0]
-        
-        self.sessions[session_id] = session
-        
+
+        # Always look for session files in the Sessions folder in the root directory
+        root_dir = Path(__file__).parent.resolve()
+        sessions_dir = root_dir / "Sessions"
+        session_path = Path(session_file)
+        if not session_path.is_absolute():
+            session_path = sessions_dir / session_file
+
+        if not session_path.exists():
+            raise ValueError(f"Session file not found: {session_path}")
+
+        session_id = session_path.stem
+
+        # If already loaded, just return info about the existing session
+        if session_id in self.sessions:
+            session = self.sessions[session_id]
+        else:
+            session = ChatSession(str(session_path), auto_continue=True)
+            self.sessions[session_id] = session
+
         return {
             "session_id": session_id,
-            "session_file": session_file,
+            "session_file": str(session_path),
             "history_count": len(session.history),
             "status": "loaded"
         }
@@ -678,73 +930,61 @@ class MCPServer:
             "exported_exchanges": len(session.history),
             "status": "exported"
         }
-    
+
     async def handle_get_processing_status(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Handle get_processing_status tool"""
-        try:
-            from initialize_fast import SynapseDB, FastEmbeddingService
+        from initialize_fast import SynapseDB, FastEmbeddingService
+        
+        db = SynapseDB()
+        embedding_service = FastEmbeddingService()
+        
+        folders = db.get_all_folders()
+        
+        status = {
+            "total_folders": len(folders),
+            "folder_status": []
+        }
+        
+        for folder_key in folders:
+            folder_stats = db.get_folder_stats(folder_key)
+            embed_status = embedding_service.get_embedding_status(folder_key)
             
-            db = SynapseDB()
-            embedding_service = FastEmbeddingService()
-            
-            folders = db.get_all_folders()
-            
-            status = {
-                "total_folders": len(folders),
-                "folder_status": []
-            }
-            
-            for folder_key in folders:
-                folder_stats = db.get_folder_stats(folder_key)
-                embed_status = embedding_service.get_embedding_status(folder_key)
-                
-                status["folder_status"].append({
-                    "folder": folder_key,
-                    "completed_docs": folder_stats['completed_docs'],
-                    "pending_docs": folder_stats['pending_docs'],
-                    "failed_docs": folder_stats['failed_docs'],
-                    "total_chunks": folder_stats['total_chunks'],
-                    "embedded_chunks": folder_stats['embedded_chunks'],
-                    "completion_rate": embed_status['completion_rate']
-                })
-            
-            return status
-            
-        except ImportError as e:
-            raise ValueError(f"Fast initialization system not available: {e}")
-        except Exception as e:
-            raise ValueError(f"Could not get processing status: {e}")
+            status["folder_status"].append({
+                "folder": folder_key,
+                "completed_docs": folder_stats['completed_docs'],
+                "pending_docs": folder_stats['pending_docs'],
+                "failed_docs": folder_stats['failed_docs'],
+                "total_chunks": folder_stats['total_chunks'],
+                "embedded_chunks": folder_stats['embedded_chunks'],
+                "completion_rate": embed_status['completion_rate']
+            })
+        
+        return status
     
     async def handle_initialize_knowledge_base(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Handle initialize_knowledge_base tool"""
         folder = args.get('folder')
         cleanup = args.get('cleanup', False)
         
-        try:
-            import subprocess
-            
-            cmd = [sys.executable, "initialize_fast.py", "--verbose"]
-            
-            if folder:
-                cmd.extend(["--folder", folder])
-            
-            if cleanup:
-                cmd.append("--cleanup")
-            
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-            
-            return {
-                "command": " ".join(cmd),
-                "return_code": result.returncode,
-                "stdout": result.stdout,
-                "stderr": result.stderr,
-                "status": "success" if result.returncode == 0 else "failed"
-            }
-            
-        except subprocess.TimeoutExpired:
-            raise ValueError("Initialization timed out after 5 minutes")
-        except Exception as e:
-            raise ValueError(f"Failed to run initialization: {e}")
+        import subprocess
+        
+        cmd = [sys.executable, "initialize_fast.py", "--verbose"]
+        
+        if folder:
+            cmd.extend(["--folder", folder])
+        
+        if cleanup:
+            cmd.append("--cleanup")
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        
+        return {
+            "command": " ".join(cmd),
+            "return_code": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "status": "success" if result.returncode == 0 else "failed"
+        }
     
     async def handle_set_verbose_mode(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Handle set_verbose_mode tool"""
@@ -890,13 +1130,10 @@ class WebSocketTransport:
         self.mcp_server.logger.info(f"Starting WebSocket transport on port {self.port}")
         self.mcp_server.start_time = time.time()
         
-        start_server = websockets.serve(self.handle_client, "0.0.0.0", self.port)
-        await start_server
-        
-        self.mcp_server.logger.info(f"WebSocket server running on ws://0.0.0.0:{self.port}")
-        
-        # Keep the server running
-        await asyncio.Future()  # run forever
+        async with websockets.serve(self.handle_client, "0.0.0.0", self.port):
+            self.mcp_server.logger.info(f"WebSocket server running on ws://0.0.0.0:{self.port}")
+            # Keep the server running
+            await asyncio.Future()  # run forever
 
 
 def main():

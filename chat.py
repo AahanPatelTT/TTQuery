@@ -15,7 +15,7 @@ Features:
 - Graceful error handling
 
 Usage:
-    python chat.py [--embeddings artifacts/embedded_with_images.npz] [--verbose] [--session session.json]
+    python chat.py [--embeddings path_or_kb_name] [--verbose] [--session session.json]
     python chat.py --test_gui  # Launch local web app GUI
 """
 
@@ -235,116 +235,29 @@ class ChatSession:
             print(f"❌ Export failed: {e}")
 
 
-class VerboseRetrieval:
-    """Handles verbose retrieval output for debugging and transparency."""
+def print_verbose_step(step: str, data: Dict = None):
+    """Print verbose retrieval step information."""
+    print(f"\n{'='*60}")
+    print(f"🔍 {step}")
+    print('='*60)
     
-    @staticmethod
-    def print_header(step: str):
-        """Print a step header."""
-        print(f"\n{'='*60}")
-        print(f"🔍 {step}")
-        print('='*60)
-    
-    @staticmethod
-    def print_query_encoding(question: str, model_name: str):
-        """Show query encoding details."""
-        VerboseRetrieval.print_header("QUERY ENCODING")
-        print(f"Question: {question}")
-        print(f"Model: {model_name}")
-        print(f"Query prefix: 'query: {question[:50]}{'...' if len(question) > 50 else ''}'")
-    
-    @staticmethod
-    def print_dense_results(summary_results: List[int], full_results: List[int], items: List[Dict]):
-        """Show dense retrieval results."""
-        VerboseRetrieval.print_header("DENSE RETRIEVAL")
-        
-        print(f"📊 Summary vector results (top 10):")
-        for i, idx in enumerate(summary_results[:10]):
-            item = items[idx]
-            source = Path(item['source_path']).name
-            summary = item['summary_text'][:100] + '...' if len(item['summary_text']) > 100 else item['summary_text']
-            print(f"  {i+1:2d}. [{idx:4d}] {source} - {summary}")
-        
-        print(f"\n📊 Full content vector results (top 10):")
-        for i, idx in enumerate(full_results[:10]):
-            item = items[idx]
-            source = Path(item['source_path']).name
-            content = item['full_text'][:100] + '...' if len(item['full_text']) > 100 else item['full_text']
-            print(f"  {i+1:2d}. [{idx:4d}] {source} - {content}")
-    
-    @staticmethod
-    def print_sparse_results(sparse_results: List[int], items: List[Dict]):
-        """Show sparse (BM25) retrieval results."""
-        VerboseRetrieval.print_header("SPARSE RETRIEVAL (BM25)")
-        
-        print(f"📊 BM25 keyword results (top 10):")
-        for i, idx in enumerate(sparse_results[:10]):
-            item = items[idx]
-            source = Path(item['source_path']).name
-            content = item['full_text'][:100] + '...' if len(item['full_text']) > 100 else item['full_text']
-            print(f"  {i+1:2d}. [{idx:4d}] {source} - {content}")
-    
-    @staticmethod
-    def print_fusion_results(fused_results: List[int], items: List[Dict]):
-        """Show RRF fusion results."""
-        VerboseRetrieval.print_header("RECIPROCAL RANK FUSION (RRF)")
-        
-        print(f"📊 Fused results after per-document capping (top 15):")
-        for i, idx in enumerate(fused_results[:15]):
-            item = items[idx]
-            source = Path(item['source_path']).name
-            doc_id = str(item['document_id'])[:8] + '...'
-            print(f"  {i+1:2d}. [{idx:4d}] {source} (doc: {doc_id})")
-    
-    @staticmethod
-    def print_rerank_results(reranked_results: List[int], items: List[Dict]):
-        """Show reranking results."""
-        VerboseRetrieval.print_header("RERANKING")
-        
-        print(f"📊 Cross-encoder reranked results (top 15):")
-        for i, idx in enumerate(reranked_results[:15]):
-            item = items[idx]
-            source = Path(item['source_path']).name
-            content = item['full_text'][:150] + '...' if len(item['full_text']) > 150 else item['full_text']
-            print(f"  {i+1:2d}. [{idx:4d}] {source}")
-            print(f"       {content}")
-    
-    @staticmethod
-    def print_final_context(final_indices: List[int], items: List[Dict]):
-        """Show final context selection."""
-        VerboseRetrieval.print_header("FINAL CONTEXT (MMR DIVERSIFIED)")
-        
-        print(f"📊 Selected contexts for LLM ({len(final_indices)} chunks):")
-        for i, idx in enumerate(final_indices):
-            item = items[idx]
-            source = Path(item['source_path']).name
-            meta = item.get('metadata', {})
-            page = meta.get('page_number') or meta.get('slide_number')
-            page_info = f" (page {page})" if page else ""
-            
-            content = item['full_text'][:200] + '...' if len(item['full_text']) > 200 else item['full_text']
-            print(f"  [{i+1}] {source}{page_info}")
-            print(f"      {content}")
-            print()
+    if data:
+        for key, value in data.items():
+            if isinstance(value, list) and len(value) > 0:
+                print(f"📊 {key}: {len(value)} items")
+                for i, item in enumerate(value[:5]):  # Show top 5
+                    if isinstance(item, dict):
+                        source = Path(item.get('source_path', '')).name
+                        content = str(item.get('full_text', item.get('summary_text', '')))[:100]
+                        print(f"  {i+1:2d}. {source} - {content}...")
+                    else:
+                        print(f"  {i+1:2d}. {item}")
+                if len(value) > 5:
+                    print(f"  ... and {len(value) - 5} more")
+            else:
+                print(f"📊 {key}: {value}")
 
 
-def add_automatic_citations(text: str, final_indices: List[int], items: List[Dict]) -> str:
-    """Add automatic citations to text based on content relevance."""
-    import re
-    
-    # Simple heuristic: add citations at the end of sentences that contain specific keywords
-    sentences = re.split(r'(?<=[.!?])\s+', text)
-    result_sentences = []
-    
-    for sentence in sentences:
-        if sentence.strip():
-            # For now, add citation [1] to the first significant sentence
-            # This is a simplified approach - could be made more sophisticated
-            if len(result_sentences) == 0 and len(sentence) > 20:
-                sentence = sentence.strip() + " [1]"
-            result_sentences.append(sentence)
-    
-    return ' '.join(result_sentences)
 
 
 def enhanced_answer_multi_kb(
@@ -406,7 +319,7 @@ def enhanced_answer_multi_kb(
             max_images=max_images
         )
     
-    # True Multi-KB search: concatenate all knowledge bases into unified corpus
+    # Multi-KB search: concatenate all knowledge bases into unified corpus
     if verbose:
         print(f"🔗 CONCATENATING {len(valid_kbs)} KNOWLEDGE BASES")
         for kb in valid_kbs:
@@ -415,267 +328,110 @@ def enhanced_answer_multi_kb(
     # Load and concatenate all knowledge bases
     combined_items = []
     all_image_paths = []
-    kb_source_mapping = {}  # Track which KB each item came from
     
-    for kb_idx, kb in enumerate(valid_kbs):
-        try:
-            if verbose:
-                print(f"📚 Loading KB: {kb['display_name']}")
-            
-            # Load corpus from this KB
-            from pipeline.query import load_corpus
-            kb_items = load_corpus(kb['embeddings_path'])
-            
-            if verbose:
-                print(f"   Loaded {len(kb_items)} items")
-            
-            # Add KB metadata to each item and track source
-            for item in kb_items:
-                # Add KB source info to metadata
-                if 'metadata' not in item:
-                    item['metadata'] = {}
-                item['metadata']['source_kb'] = kb['name']
-                item['metadata']['source_kb_display'] = kb['display_name']
-                
-                # Track KB source mapping
-                kb_source_mapping[item['id']] = kb['display_name']
-                
-                combined_items.append(item)
-                
-        except Exception as e:
-            print(f"⚠️  Error loading KB {kb['name']}: {e}")
-            continue
+    for kb in valid_kbs:
+        from pipeline.query import load_corpus
+        kb_items = load_corpus(kb['embeddings_path'])
+        
+        # Add KB metadata to each item
+        for item in kb_items:
+            if 'metadata' not in item:
+                item['metadata'] = {}
+            item['metadata']['source_kb'] = kb['name']
+            item['metadata']['source_kb_display'] = kb['display_name']
+            combined_items.append(item)
     
     if not combined_items:
         raise ValueError("No items found in any knowledge base")
     
-    if verbose:
-        print(f"🔗 CONCATENATED CORPUS: {len(combined_items)} total items")
+    # Perform unified search on the concatenated corpus
+    from pipeline.query import build_indices, load_query_encoder, encode_query
+    from pipeline.query import dense_search, sparse_search, rrf, per_doc_cap, rerank, mmr_select
+    from pipeline.query import format_citations, build_prompt, call_gemini_via_litellm
     
-    # Now perform unified search on the concatenated corpus
-    try:
-        # Build indices for the combined corpus
-        from pipeline.query import build_indices, load_query_encoder, encode_query
-        from pipeline.query import dense_search, sparse_search, rrf, per_doc_cap, rerank, mmr_select
-        from pipeline.query import format_citations, build_prompt, call_gemini_via_litellm
-        
-        dense_index_s, dense_index_f, sparse_index = build_indices(combined_items, verbose=verbose)
-        query_encoder = load_query_encoder("BAAI/bge-large-en-v1.5")  # Use default model
-        
-        # Encode query
-        query_summary, query_full = encode_query(question, query_encoder, conversation_context)
-        
-        # Search the concatenated corpus
-        dense_results_s = dense_search(query_summary, dense_index_s, k=k_dense_sum, verbose=verbose)
-        dense_results_f = dense_search(query_full, dense_index_f, k=k_dense_full, verbose=verbose)
-        sparse_results = sparse_search(question, sparse_index, k=k_sparse, verbose=verbose)
-        
-        # Fusion and ranking
-        fused_indices = rrf([dense_results_s, dense_results_f, sparse_results], verbose=verbose)
-        capped_indices = per_doc_cap(fused_indices, combined_items, per_doc, verbose=verbose)
-        
-        # Rerank if we have enough results
-        if len(capped_indices) > final_k:
-            try:
-                reranked_indices = rerank(question, capped_indices, combined_items, verbose=verbose)
-                final_indices = mmr_select(reranked_indices, combined_items, final_k, lambda_mmr, verbose=verbose)
-            except Exception as e:
-                if verbose:
-                    print(f"⚠️  Reranking failed, using MMR on capped results: {e}")
-                final_indices = mmr_select(capped_indices, combined_items, final_k, lambda_mmr, verbose=verbose)
-        else:
-            final_indices = capped_indices[:final_k]
-        
-        # Extract final contexts and build citations
-        final_contexts = [combined_items[i] for i in final_indices]
-        
-        # Group sources by KB for better attribution
-        sources_by_kb = {}
-        for ctx in final_contexts:
-            kb_name = ctx['metadata'].get('source_kb_display', 'Unknown')
-            if kb_name not in sources_by_kb:
-                sources_by_kb[kb_name] = []
-            sources_by_kb[kb_name].append(ctx)
-        
-        # Format citations with KB attribution
-        citations_parts = []
-        for kb_name, kb_contexts in sources_by_kb.items():
-            kb_citations = format_citations(kb_contexts, show_images=images_enabled)
-            if kb_citations.strip():
-                citations_parts.append(f"**From {kb_name}:**\n{kb_citations}")
-        
-        combined_sources_block = "\n\n---\n\n".join(citations_parts)
-        
-        # Extract images from contexts
-        if images_enabled:
-            for ctx in final_contexts:
-                img_paths = ctx.get('metadata', {}).get('image_paths', [])
-                if isinstance(img_paths, list):
-                    all_image_paths.extend(img_paths[:max_images//len(final_contexts)+1])
-        
-        # Limit total images
-        if len(all_image_paths) > max_images:
-            all_image_paths = all_image_paths[:max_images]
-        
-        # Build prompt and generate answer
-        context_text = "\n\n".join([
-            f"Source {i+1}: {ctx.get('full_text', ctx.get('content', ''))}" 
-            for i, ctx in enumerate(final_contexts)
-        ])
-        
-        kb_names = [kb['display_name'] for kb in valid_kbs]
-        enhanced_question = f"Based on information from multiple knowledge bases ({', '.join(kb_names)}): {question}"
-        
-        user_prompt = build_prompt(enhanced_question, context_text, conversation_context)
-        
-        # Generate answer
-        system_prompt = "You are an engineering assistant. Keep your responses relevant and based on the context. Provide as much detail as possible but keep it concise. When asked for tables - reconstruct tables based on retrieved context. IMPORTANT: Never include any citation numbers, brackets like [1], [2], or references to 'Context Document X' in your response. Write naturally without any citation markers - the system will add citations separately. When interpreting OCR text from technical diagrams, be careful about common OCR errors: '2x' may appear as part of adjacent text, 'I2C' may appear as '12C', 'x4' formatting may be inconsistent. Always double-check technical specifications and component counts against the visual context when available."
-        
-        if system_override and system_override.strip():
-            system_prompt = system_override
-        
-        if verbose:
-            print(f"🤖 Generating answer from {len(final_contexts)} contexts across {len(valid_kbs)} KBs")
-        
-        answer_text = call_gemini_via_litellm(system_prompt, user_prompt, timeout=timeout)
-        
-        # Build retrieval info
-        retrieval_info_combined = {
-            'knowledge_bases_used': [kb['display_name'] for kb in valid_kbs],
-            'total_items_searched': len(combined_items),
-            'final_contexts': len(final_contexts),
-            'sources_by_kb': {kb: len(contexts) for kb, contexts in sources_by_kb.items()},
-            'concatenated_search': True
-        }
-        
-        return answer_text, combined_sources_block, retrieval_info_combined, all_image_paths
-        
-    except Exception as e:
-        print(f"❌ Error in concatenated search: {e}")
-        # Fallback to the old separate-search method
-        print("🔄 Falling back to separate KB search method")
-        return enhanced_answer_multi_kb_separate(question, valid_kbs, conversation_context, verbose, k_dense_sum, k_dense_full, k_sparse, per_doc, final_k, lambda_mmr, timeout, system_override, images_enabled, max_images)
+    dense_index_s, dense_index_f, E_sum, E_full, sparse_index = build_indices(combined_items)
+    model_name, query_encoder = load_query_encoder("BAAI/bge-large-en-v1.5")
     
-    # Limit images to max_images
-    if len(all_image_paths) > max_images:
-        all_image_paths = all_image_paths[:max_images]
+    # Encode query
+    query_text = f"{conversation_context} {question}" if conversation_context else question
+    query_vec = encode_query(query_text, query_encoder)
     
-    return primary_answer, combined_sources_block, retrieval_info_combined, all_image_paths
-
-
-def enhanced_answer_multi_kb_separate(
-    question: str,
-    valid_kbs: List[Dict],
-    conversation_context: str = "",
-    verbose: bool = False,
-    k_dense_sum: int = 60,
-    k_dense_full: int = 60,
-    k_sparse: int = 60,
-    per_doc: int = 4,
-    final_k: int = 8,
-    lambda_mmr: float = 0.7,
-    timeout: int = 60,
-    system_override: Optional[str] = None,
-    images_enabled: bool = True,
-    max_images: int = 2
-) -> Tuple[str, str, Dict, List[str]]:
-    """Fallback method: searches each KB separately and combines results."""
+    # Search the concatenated corpus
+    dense_results_s = dense_search(query_vec, dense_index_s, k=k_dense_sum)
+    dense_results_f = dense_search(query_vec, dense_index_f, k=k_dense_full)
+    sparse_results = sparse_search(question, sparse_index, k=k_sparse)
     
-    # Multi-KB search: collect results from each KB and merge
-    all_results = []
-    all_image_paths = []
-    retrieval_info_combined = {
-        'knowledge_bases': [],
-        'total_results': 0,
-        'final_k': final_k,
-        'concatenated_search': False
-    }
+    # Fusion and ranking
+    fused_indices = rrf([dense_results_s, dense_results_f, sparse_results], weights=[0.9, 1.2, 0.8])
+    capped_indices = per_doc_cap(fused_indices, combined_items, per_doc)
     
-    # Search each knowledge base
-    for kb in valid_kbs:
-        try:
-            # Reduce final_k per KB to allow fair representation
-            kb_final_k = max(1, final_k // len(valid_kbs))
-            
-            answer_text, sources_block, retrieval_info, image_paths = enhanced_answer(
-                question=question,
-                embeddings_path=kb['embeddings_path'],
-                conversation_context=conversation_context,
-                verbose=verbose,
-                k_dense_sum=k_dense_sum,
-                k_dense_full=k_dense_full,
-                k_sparse=k_sparse,
-                per_doc=per_doc,
-                final_k=kb_final_k,
-                lambda_mmr=lambda_mmr,
-                timeout=timeout,
-                system_override=system_override,
-                chunked_path=kb.get('chunked_path'),
-                images_enabled=images_enabled,
-                max_images=max_images // len(valid_kbs) + 1  # Distribute images across KBs
-            )
-            
-            # Store results with KB context
-            all_results.append({
-                'kb_name': kb['display_name'],
-                'kb_id': kb['name'],
-                'sources_block': sources_block,
-                'retrieval_info': retrieval_info
-            })
-            all_image_paths.extend(image_paths)
-            
-            # Combine retrieval info
-            retrieval_info_combined['knowledge_bases'].append({
-                'name': kb['display_name'],
-                'id': kb['name'],
-                'results_count': len(retrieval_info.get('final_indices', [])),
-                'retrieval_info': retrieval_info
-            })
-            retrieval_info_combined['total_results'] += len(retrieval_info.get('final_indices', []))
-            
-        except Exception as e:
-            print(f"⚠️  Error searching KB {kb['name']}: {e}")
-            continue
-    
-    if not all_results:
-        raise ValueError("No results found from any knowledge base")
-    
-    # Combine sources from all KBs
-    combined_sources = []
-    for result in all_results:
-        if result['sources_block']:
-            combined_sources.append(f"**From {result['kb_name']}:**\n{result['sources_block']}")
-    
-    combined_sources_block = "\n\n---\n\n".join(combined_sources)
-    
-    # Generate unified answer using first KB's approach
-    kb_names = [kb['display_name'] for kb in valid_kbs]
-    if all_results:
-        # Get the first KB's actual answer by re-running with the combined question
-        first_kb = valid_kbs[0]
-        answer_text, _, _, _ = enhanced_answer(
-            question=f"Based on information from multiple knowledge bases ({', '.join(kb_names)}): {question}",
-            embeddings_path=first_kb['embeddings_path'],
-            conversation_context=conversation_context + f"\n\nNote: This query searched across {len(valid_kbs)} knowledge bases.",
-            verbose=verbose,
-            k_dense_sum=k_dense_sum,
-            k_dense_full=k_dense_full,
-            k_sparse=k_sparse,
-            per_doc=per_doc,
-            final_k=final_k,
-            lambda_mmr=lambda_mmr,
-            timeout=timeout,
-            system_override=system_override,
-            chunked_path=first_kb.get('chunked_path'),
-            images_enabled=images_enabled,
-            max_images=max_images
-        )
+    # Rerank and select final contexts
+    if len(capped_indices) > final_k:
+        reranked_indices = rerank(question, capped_indices, combined_items, topn=40)
+        final_indices = mmr_select(query_vec, reranked_indices, E_full, lambda_mmr, final_k)
     else:
-        answer_text = f"Multi-KB search completed across {len(valid_kbs)} knowledge bases. See sources below for detailed information."
+        final_indices = capped_indices[:final_k]
     
-    # Limit images to max_images
+    # Extract final contexts and build citations
+    final_contexts = [combined_items[i] for i in final_indices]
+    
+    # Group sources by KB for better attribution
+    sources_by_kb = {}
+    for ctx in final_contexts:
+        kb_name = ctx['metadata'].get('source_kb_display', 'Unknown')
+        if kb_name not in sources_by_kb:
+            sources_by_kb[kb_name] = []
+        sources_by_kb[kb_name].append(ctx)
+    
+    # Format citations with KB attribution
+    citations_parts = []
+    for kb_name, kb_contexts in sources_by_kb.items():
+        kb_indices = [final_indices[i] for i, ctx in enumerate(final_contexts) 
+                     if ctx['metadata'].get('source_kb_display') == kb_name]
+        kb_citations, _ = format_citations(kb_indices, combined_items)
+        if kb_citations.strip():
+            citations_parts.append(f"**From {kb_name}:**\n{kb_citations}")
+    
+    combined_sources_block = "\n\n---\n\n".join(citations_parts)
+    
+    # Extract images from contexts
+    if images_enabled:
+        for ctx in final_contexts:
+            img_paths = ctx.get('metadata', {}).get('image_paths', [])
+            if isinstance(img_paths, list):
+                all_image_paths.extend(img_paths[:max_images//len(final_contexts)+1])
+    
+    # Limit total images
     if len(all_image_paths) > max_images:
         all_image_paths = all_image_paths[:max_images]
+    
+    # Build prompt and generate answer
+    context_text = "\n\n".join([
+        f"Source {i+1}: {ctx.get('full_text', ctx.get('content', ''))}" 
+        for i, ctx in enumerate(final_contexts)
+    ])
+    
+    kb_names = [kb['display_name'] for kb in valid_kbs]
+    enhanced_question = f"Based on information from multiple knowledge bases ({', '.join(kb_names)}): {question}"
+    
+    user_prompt = build_prompt(enhanced_question, context_text, conversation_context)
+    
+    # Generate answer
+    system_prompt = "You are an engineering assistant. Keep your responses relevant and based on the context. Provide as much detail as possible but keep it concise. When asked for tables - reconstruct tables based on retrieved context. IMPORTANT: Never include any citation numbers, brackets like [1], [2], or references to 'Context Document X' in your response. Write naturally without any citation markers - the system will add citations separately. When interpreting OCR text from technical diagrams, be careful about common OCR errors: '2x' may appear as part of adjacent text, 'I2C' may appear as '12C', 'x4' formatting may be inconsistent. Always double-check technical specifications and component counts against the visual context when available."
+    
+    if system_override and system_override.strip():
+        system_prompt = system_override
+    
+    answer_text = call_gemini_via_litellm(system_prompt, user_prompt, timeout=timeout)
+    
+    # Build retrieval info
+    retrieval_info_combined = {
+        'knowledge_bases_used': [kb['display_name'] for kb in valid_kbs],
+        'total_items_searched': len(combined_items),
+        'final_contexts': len(final_contexts),
+        'sources_by_kb': {kb: len(contexts) for kb, contexts in sources_by_kb.items()},
+        'concatenated_search': True
+    }
     
     return answer_text, combined_sources_block, retrieval_info_combined, all_image_paths
 
@@ -702,15 +458,12 @@ def enhanced_answer(
     # Load corpus and build indices
     items = load_corpus(embeddings_path)
     if not items:
-        raise RuntimeError("No embedding records found. Run initialize.py first.")
+        raise RuntimeError("No embedding records found. Run initialize_fast.py first.")
 
     idx_sum, idx_full, E_sum, E_full, bm25 = build_indices(items)
     model_name, q_encoder = load_query_encoder()
     
     # Encode query
-    if verbose:
-        VerboseRetrieval.print_query_encoding(question, model_name)
-    
     qv = encode_query(question, q_encoder)
 
     # Dense search
@@ -718,73 +471,73 @@ def enhanced_answer(
     c_full = dense_search(qv, idx_full, k_dense_full)
     
     if verbose:
-        VerboseRetrieval.print_dense_results(c_sum, c_full, items)
+        print_verbose_step("DENSE RETRIEVAL", {
+            "summary_results": [items[i] for i in c_sum[:10]],
+            "full_results": [items[i] for i in c_full[:10]]
+        })
 
     # Sparse search
     c_sparse = sparse_search(question, bm25, k_sparse)
     
     if verbose:
-        VerboseRetrieval.print_sparse_results(c_sparse, items)
+        print_verbose_step("SPARSE RETRIEVAL (BM25)", {
+            "sparse_results": [items[i] for i in c_sparse[:10]]
+        })
 
     # Fusion
     fused = rrf([c_sum, c_full, c_sparse], weights=[0.9, 1.2, 0.8], rrf_k=60, base=60)
     fused = per_doc_cap(fused, items, per_doc)
     
     if verbose:
-        VerboseRetrieval.print_fusion_results(fused, items)
+        print_verbose_step("RECIPROCAL RANK FUSION (RRF)", {
+            "fused_results": [items[i] for i in fused[:15]]
+        })
 
     # Rerank
     reranked = rerank(question, fused[:100], items, topn=20)
     
     if verbose:
-        VerboseRetrieval.print_rerank_results(reranked, items)
+        print_verbose_step("RERANKING", {
+            "reranked_results": [items[i] for i in reranked[:15]]
+        })
 
     # MMR diversification
     final_indices = mmr_select(qv[0], reranked, E_full, lambda_mmr, min(final_k, len(reranked) or 0))
     
     if verbose:
-        VerboseRetrieval.print_final_context(final_indices, items)
+        print_verbose_step("FINAL CONTEXT (MMR DIVERSIFIED)", {
+            "final_contexts": [items[i] for i in final_indices]
+        })
 
-    # Extract relevant images first so we can include descriptions in the LLM prompt
+    # Extract relevant images
     image_paths = []
     image_descriptions = []
     if chunked_path and images_enabled and max_images > 0:
-        try:
-            from pipeline.query import extract_relevant_images
-            # Extract images with the specified limit
-            all_image_paths = extract_relevant_images(question, final_indices, items)
-            image_paths = all_image_paths[:max_images]  # Limit to max_images
-            
-            # Get image descriptions for LLM context
-            for img_path in image_paths:
-                # Find corresponding image metadata
-                for item in items:
-                    metadata = item.get("metadata", {})
-                    if (metadata.get("content_format") == "extracted_image" and 
-                        metadata.get("image_path") == img_path):
-                        # Get OCR text and context
-                        ocr_text = metadata.get("ocr_text", "")
-                        doc_context = metadata.get("document_context", "")
-                        img_type = metadata.get("image_type", "diagram")
-                        
-                        desc = f"Technical {img_type}"
-                        if ocr_text:
-                            desc += f" containing: {ocr_text[:200]}"
-                        if doc_context:
-                            desc += f" (Context: {doc_context[:100]})"
-                        
-                        image_descriptions.append(desc)
-                        break
-                else:
-                    # Fallback description based on filename
-                    img_name = os.path.basename(img_path)
-                    image_descriptions.append(f"Technical diagram: {img_name}")
+        from pipeline.query import extract_relevant_images
+        all_image_paths = extract_relevant_images(question, final_indices, items)
+        image_paths = all_image_paths[:max_images]
+        
+        # Get image descriptions for LLM context
+        for img_path in image_paths:
+            for item in items:
+                metadata = item.get("metadata", {})
+                if (metadata.get("content_format") == "extracted_image" and 
+                    metadata.get("image_path") == img_path):
+                    ocr_text = metadata.get("ocr_text", "")
+                    doc_context = metadata.get("document_context", "")
+                    img_type = metadata.get("image_type", "diagram")
                     
-        except Exception as img_error:
-            if verbose:
-                print(f"⚠️  Image extraction failed: {img_error}")
-    elif verbose:
-        print("⚠️  No chunked file provided - skipping image extraction")
+                    desc = f"Technical {img_type}"
+                    if ocr_text:
+                        desc += f" containing: {ocr_text[:200]}"
+                    if doc_context:
+                        desc += f" (Context: {doc_context[:100]})"
+                    
+                    image_descriptions.append(desc)
+                    break
+            else:
+                img_name = os.path.basename(img_path)
+                image_descriptions.append(f"Technical diagram: {img_name}")
 
     # Build prompt with conversation context
     sources_block, cmap = format_citations(final_indices, items)
@@ -796,27 +549,22 @@ def enhanced_answer(
             f"- {desc}" for desc in image_descriptions
         )
         user += image_context
-        if verbose:
-            print(f"📷 Added {len(image_descriptions)} image descriptions to LLM context")
     
     # Add conversation context if available
     if conversation_context:
         system += "\n\nFor context, here is our recent conversation:\n" + conversation_context
-    # Admin/system override from GUI
+    
+    # System override from GUI
     if system_override and system_override.strip():
-        if verbose:
-            print(f"🔄 SYSTEM PROMPT OVERRIDE APPLIED")
-            print(f"   Original: {system[:100]}...")
-            print(f"   Override: {system_override[:100]}...")
         system = str(system_override)
-    elif verbose:
-        print(f"🔧 USING DEFAULT SYSTEM PROMPT")
     
     if verbose:
-        VerboseRetrieval.print_header("LLM GENERATION")
-        print(f"System prompt: {system[:500]}{'...' if len(system) > 500 else ''}")
-        print(f"User prompt: {user[:300]}{'...' if len(user) > 300 else ''}")
-        print(f"Timeout: {timeout}s")
+        print_verbose_step("LLM GENERATION", {
+            "system_prompt": system[:500] + "..." if len(system) > 500 else system,
+            "user_prompt": user[:300] + "..." if len(user) > 300 else user,
+            "timeout": f"{timeout}s",
+            "images_found": len(image_paths)
+        })
     
     # Generate answer
     start_time = time.time()
@@ -825,15 +573,6 @@ def enhanced_answer(
     
     if verbose:
         print(f"✅ Generation completed in {generation_time:.1f}s")
-
-    # Images were already extracted before LLM generation above
-    
-    if verbose and image_paths:
-        print(f"📷 FOUND {len(image_paths)} RELEVANT IMAGES:")
-        for i, img_path in enumerate(image_paths, 1):
-            print(f"   [{i}] {os.path.basename(img_path)}")
-    elif verbose:
-        print(f"📷 No relevant images found for this query")
 
     # Prepare retrieval info for session storage
     retrieval_info = {
@@ -1226,11 +965,7 @@ def run_gui(embeddings_path: str, default_timeout: int = 60, selected_kb_name: O
         session.add_exchange(question, answer_text, sources_block, retrieval_info)
 
         # Keep in-memory history for UI
-        # Process answer with better markdown handling
         processed_answer = str(answer_text)
-        # For now, skip automatic citations as they need more sophisticated implementation
-        # processed_answer = add_automatic_citations(processed_answer, final_indices, items)
-        
         a_html = markdown.markdown(processed_answer, extensions=["tables", "fenced_code", "nl2br", "toc", "attr_list", "def_list"])
         s_html = markdown.markdown(str(sources_block), extensions=["tables", "fenced_code", "nl2br"])
         session_history.append({"q": question, "a_html": a_html, "sources_html": s_html, "ts": time.time()})
@@ -1703,8 +1438,8 @@ def main() -> int:
     parser.add_argument(
         "--embeddings",
         type=str,
-        default="artifacts/embedded_with_images.npz",
-        help="Path to embeddings file"
+        default=None,
+        help="Path to embeddings file or knowledge base name (optional - will auto-detect available KBs)"
     )
     parser.add_argument("--session", type=str, help="Specific session file for conversation history")
     parser.add_argument("--kb", type=str, help="Use specific knowledge base by name")
@@ -1727,7 +1462,10 @@ def main() -> int:
     
     # Handle knowledge base listing
     if args.list_kb:
-        artifacts_dir = os.path.dirname(os.path.abspath(args.embeddings))
+        if args.embeddings is None:
+            artifacts_dir = "artifacts"
+        else:
+            artifacts_dir = os.path.dirname(os.path.abspath(args.embeddings))
         knowledge_bases = list_available_knowledge_bases(artifacts_dir)
         
         if not knowledge_bases:
@@ -1759,9 +1497,39 @@ def main() -> int:
     chunked_path = None
     selected_kb_name = None
     
+    # If no embeddings path provided, try to auto-detect available knowledge bases
+    if embeddings_path is None:
+        # Try to find artifacts directory
+        artifacts_dir = "artifacts"
+        if not os.path.exists(artifacts_dir):
+            print("❌ No embeddings path provided and no artifacts directory found.")
+            print("Please specify --embeddings or run initialization first:")
+            print("  python initialize_fast.py")
+            return 1
+        
+        knowledge_bases = list_available_knowledge_bases(artifacts_dir)
+        if not knowledge_bases:
+            print("❌ No knowledge bases found. Run initialization first:")
+            print("  python initialize_fast.py")
+            return 1
+        
+        # Use the first available knowledge base as default
+        selected_kb = knowledge_bases[0]
+        embeddings_path = selected_kb['embeddings_path']
+        chunked_path = selected_kb['chunked_path']
+        selected_kb_name = selected_kb['display_name']
+        print(f"🔍 Auto-selected knowledge base: {selected_kb_name}")
+        print(f"📄 Embeddings: {os.path.basename(embeddings_path)}")
+        if chunked_path:
+            print(f"🧩 Chunks: {os.path.basename(chunked_path)}")
+        print()
+    
     # Interactive knowledge base selection
     if args.select_kb:
-        artifacts_dir = os.path.dirname(os.path.abspath(args.embeddings))
+        if embeddings_path is None:
+            artifacts_dir = "artifacts"
+        else:
+            artifacts_dir = os.path.dirname(os.path.abspath(embeddings_path))
         selected_kb = interactive_knowledge_base_selector(artifacts_dir)
         
         if selected_kb is None:
@@ -1771,7 +1539,10 @@ def main() -> int:
     
     # Handle specific knowledge base selection
     if args.kb:
-        artifacts_dir = os.path.dirname(os.path.abspath(args.embeddings))
+        if embeddings_path is None:
+            artifacts_dir = "artifacts"
+        else:
+            artifacts_dir = os.path.dirname(os.path.abspath(embeddings_path))
         knowledge_bases = list_available_knowledge_bases(artifacts_dir)
         
         selected_kb = None
@@ -1795,6 +1566,11 @@ def main() -> int:
             print(f"🧩 Chunks: {os.path.basename(chunked_path)}")
         print()
 
+    # Ensure embeddings_path is not None before calling abspath
+    if embeddings_path is None:
+        print("❌ No embeddings path available. Please specify --embeddings or run initialization first.")
+        return 1
+    
     embeddings_path = os.path.abspath(embeddings_path)
     # For GUI mode, check if we have any knowledge bases available
     if args.test_gui:

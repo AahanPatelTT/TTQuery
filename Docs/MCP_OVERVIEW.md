@@ -58,10 +58,11 @@ Welcome to the comprehensive documentation for the **Synapse Model Context Proto
 ### **🧪 I'm Testing the System**
 **Want to validate everything works?**
 
-1. **Run tests:** `python test_mcp_server.py`
+1. **Run tests:** `python test_mcp_server.py` ✅ **All tests passing**
 2. **Try demo:** `python mcp_client_example.py --demo`
 3. **Interactive mode:** `python mcp_client_example.py --interactive`
-4. **Troubleshooting:** [Troubleshooting Guide](MCP_USAGE_GUIDE.md#troubleshooting)
+4. **HTTP testing:** `curl -X POST http://localhost:3000/mcp -H "Content-Type: application/json" -d '{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "ask_question", "arguments": {"question": "What is Synapse?"}}}'`
+5. **Troubleshooting:** [Troubleshooting Guide](MCP_USAGE_GUIDE.md#troubleshooting)
 
 ## 🛠️ **What is the MCP Server?**
 

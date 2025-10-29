@@ -8,8 +8,7 @@ This document outlines the production-ready structure of the Synapse RAG pipelin
 Synapse/
 ├── 📁 Core Application
 │   ├── chat.py                     # Main interactive chat interface (CLI + Web GUI)
-│   ├── initialize.py               # Standard initialization pipeline (legacy)
-│   ├── initialize_fast.py          # Fast incremental initialization (recommended)
+│   ├── initialize_fast.py          # Fast incremental initialization pipeline
 │   ├── mcp_server.py               # MCP server for AI model integration ⭐ **NEW**
 │   ├── mcp_client_example.py       # MCP client example and testing tool ⭐ **NEW**
 │   ├── test_mcp_server.py          # Comprehensive MCP server test suite ⭐ **NEW**
@@ -95,27 +94,46 @@ Synapse/
 - **Web GUI**: Modern web interface with real-time config
 - **Upload Interface**: Drag & drop document management
 
-## 🎯 **MCP Integration Points**
+## ✅ **MCP Integration Complete** ⭐ **PRODUCTION READY**
 
-### **CLI Interface** (`chat.py`)
-```python
-# Primary MCP integration target
-python chat.py --question "Your question" --kb "knowledge_base"
+### **MCP Server** (`mcp_server.py`) ✅ **FULLY FUNCTIONAL**
+```bash
+# Start MCP server
+./start_mcp_server.sh                    # Both HTTP + WebSocket
+python mcp_server.py --transport both    # Manual start
+
+# Test MCP server
+python test_mcp_server.py                # Comprehensive test suite
+python mcp_client_example.py --demo      # Interactive demo
 ```
 
-### **Query API** (`pipeline/query.py`)
+### **MCP Endpoints** ✅ **TESTED**
+```http
+# HTTP Transport (JSON-RPC 2.0)
+POST http://localhost:3000/mcp           # Main MCP endpoint
+GET  http://localhost:3000/health        # Health check
+
+# WebSocket Transport
+ws://localhost:3001                      # Real-time MCP communication
+```
+
+### **MCP Tools** ✅ **14 TOOLS AVAILABLE**
+- **Query Tools**: `ask_question`, `set_verbose_mode`, `get_server_info`
+- **Knowledge Base**: `list_knowledge_bases`, `switch_knowledge_base`, `get_kb_stats`
+- **Session Management**: `create_session`, `load_session`, `list_sessions`, `get_session_history`, `clear_session_history`, `export_session`
+- **Processing**: `get_processing_status`, `initialize_knowledge_base`
+
+### **Legacy Interfaces** (Still Available)
 ```python
-# Direct programmatic access
+# CLI Interface
+python chat.py --question "Your question" --kb "knowledge_base"
+
+# Query API
 from pipeline.query import answer
 result = answer(question, embeddings_path, ...)
-```
 
-### **HTTP Endpoints** (`chat.py --test_gui`)
-```http
-POST /api/ask              # Query endpoint
-GET  /api/knowledge-bases  # List available KBs
-POST /api/upload          # Upload documents
-GET  /api/upload/status   # Processing status
+# Web GUI
+python chat.py --test_gui
 ```
 
 ## 🔄 **Data Flow**

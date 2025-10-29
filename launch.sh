@@ -182,7 +182,7 @@ initialize_knowledge_base() {
     else
         print_error "Knowledge base initialization failed"
         print_status "Falling back to legacy initialization..."
-        python initialize.py
+        python initialize_fast.py
         if [ $? -ne 0 ]; then
             exit 1
         fi

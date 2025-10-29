@@ -805,7 +805,7 @@ def interactive_knowledge_base_selector(artifacts_dir: str) -> Optional[Dict[str
 
 def main(argv: List[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Query the Synapse index with hybrid RAG and generate with Gemini via LiteLLM")
-    default_emb = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "artifacts", "embedded_with_images.npz"))
+    default_emb = None  # Will auto-detect available knowledge bases
     parser.add_argument("--question", type=str, required=False, help="User question")
     parser.add_argument("--embeddings", type=str, default=default_emb, help="Path to embeddings.jsonl or knowledge base name")
     # --chunked is now optional; if omitted, derived from embeddings path

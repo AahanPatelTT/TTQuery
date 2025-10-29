@@ -1,0 +1,76 @@
+# Synapse Environment Configuration Template
+# Save this as ".env" in the project root and fill in your actual values
+
+# ===== LiteLLM Configuration (Required) =====
+# API key for your LiteLLM proxy
+LITELLM_API_KEY=your_api_key_here
+
+# Base URL for the LiteLLM proxy server  
+LITELLM_BASE_URL=http://localhost:4000
+
+# LLM model to use (optional, defaults to gemini/gemini-2.5-pro)
+LITELLM_MODEL=gemini/gemini-2.5-pro
+
+# ===== Embedding Configuration =====
+# Embedding model for document retrieval (optional, defaults to BAAI/bge-large-en-v1.5)
+EMBED_MODEL=BAAI/bge-large-en-v1.5
+
+# ===== System Configuration =====
+# Disable tokenizer parallelism warnings during forking
+TOKENIZERS_PARALLELISM=false
+
+# ===== Optional MCP Server Configuration =====
+# Port for MCP HTTP transport (default: 3000)
+MCP_HTTP_PORT=3000
+
+# Port for MCP WebSocket transport (default: 3001)  
+MCP_WS_PORT=3001
+
+# Enable debug mode for MCP server (default: false)
+MCP_DEBUG=false
+
+# Directory containing knowledge base artifacts (default: artifacts)
+MCP_ARTIFACTS_DIR=artifacts
+
+# ===== Optional Web Interface Configuration =====
+# Port for web interface (default: 5000)
+WEB_PORT=5000
+
+# Enable Flask debug mode (default: false)
+FLASK_DEBUG=false
+
+# ===== Logging Configuration =====
+# Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+LOG_LEVEL=INFO
+
+# ===== Knowledge Base Configuration =====
+# Default timeout for queries in seconds
+DEFAULT_TIMEOUT=60
+
+# Maximum number of final contexts to retrieve
+DEFAULT_FINAL_K=10
+
+# Maximum number of images to include in responses
+DEFAULT_MAX_IMAGES=2
+
+# Enable verbose mode by default
+DEFAULT_VERBOSE=false
+
+# ===== CORS Configuration =====
+# Enable CORS for web interfaces
+ENABLE_CORS=true
+
+# Allowed origins for CORS (comma-separated)
+CORS_ORIGINS=http://localhost:3000,http://localhost:5000
+
+# ===== Database Configuration (Optional) =====
+# Path to SQLite database file
+DATABASE_PATH=artifacts/synapse.db
+
+# ===== Session Configuration =====
+# Directory for storing chat sessions
+SESSIONS_DIR=sessions
+
+# Default session auto-continue behavior
+SESSION_AUTO_CONTINUE=false
+

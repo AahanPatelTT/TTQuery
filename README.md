@@ -97,7 +97,7 @@ Add desired files in a simple (.csv/.md) or regular formats like .pdf, .pptx, .d
 
 ```bash
 # Single knowledge base (traditional approach)
-python initialize.py
+python initialize_fast.py
 
 # Fast incremental initialization (recommended)
 python initialize_fast.py
@@ -150,7 +150,7 @@ python chat.py --test_gui
 # Then open http://127.0.0.1:7860 in your browser
 ```
 
-**Option C: MCP Server Interface** ⭐ **NEW**
+**Option C: MCP Server Interface** ⭐ **NEW** ✅ **PRODUCTION READY**
 ```bash
 # Launch MCP server (for AI model integration)
 ./launch.sh --mcp              # Both HTTP and WebSocket
@@ -160,7 +160,12 @@ python chat.py --test_gui
 python mcp_server.py --transport both --http-port 3000 --ws-port 3001
 
 # Test the MCP server
-python mcp_client_example.py --demo
+python test_mcp_server.py      # Comprehensive test suite
+python mcp_client_example.py --demo  # Interactive demo
+
+# Quick HTTP test
+curl -X POST http://localhost:3000/mcp -H "Content-Type: application/json" \
+  -d '{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "ask_question", "arguments": {"question": "What is Synapse?"}}}'
 ```
 
 📖 **[Complete MCP Documentation →](Docs/MCP_OVERVIEW.md)**
@@ -279,16 +284,16 @@ Model: BAAI/bge-large-en-v1.5
 ### **Initialization Options**
 ```bash
 # Different embedding providers
-python initialize.py --provider openai --embed-model text-embedding-3-small
-python initialize.py --provider colbert --colbert-model colbert-ir/colbertv2.0
+python initialize_fast.py --provider openai --embed-model text-embedding-3-small
+python initialize_fast.py --provider colbert --colbert-model colbert-ir/colbertv2.0
 
 # Custom data processing
-python initialize.py --data-dir /path/to/docs --artifacts-dir custom_output
-python initialize.py --skip-parse --skip-chunk  # Only run embedding step
+python initialize_fast.py --data-dir /path/to/docs --artifacts-dir custom_output
+python initialize_fast.py --skip-parse --skip-chunk  # Only run embedding step
 
 # Performance tuning
-python initialize.py --force-reprocess  # Bypass all caching
-python initialize.py --verbose          # Detailed output for debugging
+python initialize_fast.py --force-reprocess  # Bypass all caching
+python initialize_fast.py --verbose          # Detailed output for debugging
 ```
 
 ### **Manual Pipeline Execution**
@@ -384,10 +389,10 @@ Synapse includes smart caching at every pipeline stage:
 ### **Cache Commands**
 ```bash
 # Normal operation (caching enabled by default)
-python initialize.py
+python initialize_fast.py
 
 # Force reprocessing (disable caching)
-python initialize.py --force-reprocess
+python initialize_fast.py --force-reprocess
 
 # Custom cache locations  
 python pipeline/parse.py --cache-path "custom/cache.pkl"
@@ -416,6 +421,8 @@ python pipeline/parse.py --cache-path "custom/cache.pkl"
 | **Default Configs** | ❌ | ✅ | ✅ |
 | **AI Integration** | ❌ | ❌ | ✅ **MCP Protocol** |
 | **Transport Options** | ❌ | HTTP Only | ✅ **HTTP + WebSocket** |
+| **Production Ready** | ✅ | ✅ | ✅ **Fully Tested** |
+| **Test Suite** | ❌ | ❌ | ✅ **Comprehensive** |
 
 📖 **[Web GUI Documentation →](Docs/CONFIG_SESSION_FEATURES.md)**  
 📖 **[MCP Server Documentation →](Docs/MCP_OVERVIEW.md)**

@@ -458,22 +458,8 @@ def parse_csv(file_path: str) -> Iterator[ParsedChunk]:
     # Robust delimiter inference: try default, then python engine auto-sep, then whitespace
     def _read_csv_robust(path: str) -> "pd.DataFrame":
         try:
-            df0 = pd.read_csv(path)
-            if df0.shape[1] > 1:
-                return df0
+            return pd.read_csv(path, sep=None, engine="python")
         except Exception:
-            df0 = None
-        try:
-            df1 = pd.read_csv(path, sep=None, engine="python")
-            if df1.shape[1] > 1:
-                return df1
-        except Exception:
-            df1 = None
-        try:
-            df2 = pd.read_csv(path, delim_whitespace=True, engine="python")
-            return df2
-        except Exception:
-            # Final fallback: single-column placeholder
             return pd.read_csv(path, header=None, engine="python")
 
     df = _read_csv_robust(file_path)
@@ -576,23 +562,11 @@ def parse_image_basic(
 
     if image is not None and pytesseract is not None:
         try:
-            # Use better OCR configuration for technical diagrams
             custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ×x-/()[]{}:.,;'
             ocr_text = pytesseract.image_to_string(image, config=custom_config) or ""
-            
-            # Fallback to default if custom config fails
-            if not ocr_text.strip():
-                ocr_text = pytesseract.image_to_string(image) or ""
-                
-            # Apply OCR error corrections
             ocr_text = correct_ocr_common_errors(ocr_text)
         except Exception:
-            try:
-                # Fallback to default OCR
-                ocr_text = pytesseract.image_to_string(image) or ""
-                ocr_text = correct_ocr_common_errors(ocr_text)
-            except Exception:
-                ocr_text = ""
+            ocr_text = ""
 
     if image is not None and captioner is not None:
         try:
@@ -773,18 +747,6 @@ def parse_file_unstructured(
             # Apply OCR error corrections to unstructured results
             ocr_text = correct_ocr_common_errors(ocr_text)
             
-            # Try enhanced OCR if unstructured didn't produce good results
-            if not ocr_text.strip():
-                try:
-                    import pytesseract  # type: ignore
-                    from PIL import Image  # type: ignore
-                    if pytesseract is not None and Image is not None:
-                        img = Image.open(file_path)
-                        custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ×x-/()[]{}:.,;'
-                        ocr_text = pytesseract.image_to_string(img, config=custom_config) or ""
-                        ocr_text = correct_ocr_common_errors(ocr_text)
-                except Exception:
-                    pass
             caption_text = ""
             try:
                 from PIL import Image  # type: ignore
@@ -820,8 +782,7 @@ def parse_file_unstructured(
                         },
                     )
                 ]
-            # If nothing produced, fall back to basic image parsing (pytesseract and/or captioner)
-            return list(parse_image_basic(file_path, captioner=image_captioner))
+            return []
         else:
             logging.info("Unstructured: skipping unsupported file type: %s", file_path)
             return []
@@ -904,31 +865,7 @@ def extract_pdf_tables_with_pdfplumber(file_path: str, document_id: str) -> List
         with pdfplumber.open(file_path) as pdf:
             for page_idx, page in enumerate(pdf.pages):
                 tables: List[List[List[Optional[str]]]] = []
-                # Attempt line-based detection first
-                try:
-                    tables = page.extract_tables(
-                        table_settings={
-                            "vertical_strategy": "lines",
-                            "horizontal_strategy": "lines",
-                            "intersection_tolerance": 5,
-                        }
-                    ) or []
-                except Exception:
-                    tables = []
-
-                # Fallback to text-based detection if no tables found
-                if not tables:
-                    try:
-                        tables = page.extract_tables(
-                            table_settings={
-                                "vertical_strategy": "text",
-                                "horizontal_strategy": "text",
-                                "snap_tolerance": 3,
-                                "join_tolerance": 3,
-                            }
-                        ) or []
-                    except Exception:
-                        tables = []
+                tables = page.extract_tables() or []
 
                 for t_idx, rows in enumerate(tables):
                     try:
@@ -1417,9 +1354,6 @@ def process_single_file_parsing(
             chunks: List[ParsedChunk]
             if use_unstructured:
                 chunks = parse_file_unstructured(file_path, uopts, image_captioner=image_captioner)
-                # If unstructured fails or yields nothing, fallback to basic for resilience
-                if not chunks:
-                    chunks = parse_file_basic(file_path, image_captioner=image_captioner)
             else:
                 chunks = parse_file_basic(file_path, image_captioner=image_captioner)
             
@@ -1641,9 +1575,6 @@ def process_folder_based_parsing(
                 chunks: List[ParsedChunk]
                 if use_unstructured:
                     chunks = parse_file_unstructured(file_path, uopts, image_captioner=image_captioner)
-                    # If unstructured fails or yields nothing, fallback to basic for resilience
-                    if not chunks:
-                        chunks = parse_file_basic(file_path, image_captioner=image_captioner)
                 else:
                     chunks = parse_file_basic(file_path, image_captioner=image_captioner)
                 

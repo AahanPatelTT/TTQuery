@@ -1089,6 +1089,9 @@ python initialize_fast.py
 
 # Check initialization status
 python initialize_fast.py --status
+
+# List available knowledge bases
+python chat.py --list-kb
 ```
 
 **5. Permission Errors**
