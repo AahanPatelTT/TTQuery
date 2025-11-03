@@ -1030,8 +1030,15 @@ class HTTPTransport:
             })
         @self.app.route('/health', methods=['GET'])
         def health_check():
-            """Health check endpoint"""
-            return jsonify({"status": "healthy", "timestamp": datetime.now().isoformat()})
+            """Health check endpoint (quiet - doesn't log)"""
+            # Suppress logging for health checks to reduce noise
+            import logging
+            logging.getLogger('werkzeug').setLevel(logging.ERROR)
+            try:
+                return jsonify({"status": "healthy", "timestamp": datetime.now().isoformat()})
+            finally:
+                # Restore logging level
+                logging.getLogger('werkzeug').setLevel(logging.INFO)
     def run(self, debug: bool = False, production: bool = False):
         """Run the HTTP server
         Args:

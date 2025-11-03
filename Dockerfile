@@ -48,8 +48,8 @@ USER synapse
 EXPOSE 8880
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8880/health || exit 1
+HEALTHCHECK --interval=60s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -sf http://localhost:8880/health || exit 1
 
 # Default command (can be overridden)
 CMD ["python", "mcp_server.py", "--http-port", "8880", "--production"]
