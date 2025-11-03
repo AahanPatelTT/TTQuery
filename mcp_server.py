@@ -139,17 +139,17 @@ class MCPServer:
             # Core Query Tools
             MCPTool(
                 name="ask_question",
-                description="Retrieve relevant context from knowledge base(s) for external response generation",
+                description="Retrieve relevant context from knowledge base(s) for external response generation. Supports multi-KB search - specify knowledge_bases array to search specific KBs, or omit to search all available KBs.",
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "question": {"type": "string", "description": "The question to search for"},
-                        "session_id": {"type": "string", "description": "Session ID for conversation context"},
+                        "session_id": {"type": "string", "description": "Session ID for conversation context (optional, auto-created if needed)"},
                         "verbose": {"type": "boolean", "description": "Enable detailed retrieval information"},
                         "timeout": {"type": "number", "description": "Query timeout in seconds", "default": 60},
                         "knowledge_bases": {
                             "type": "array",
-                            "description": "List of knowledge base names to search (optional - uses current KB if not specified)",
+                            "description": "List of knowledge base names to search. If not specified, searches all available knowledge bases.",
                             "items": {"type": "string"}
                         },
                         "search_mode": {
@@ -182,86 +182,14 @@ class MCPServer:
                 inputSchema={"type": "object", "properties": {}}
             ),
             MCPTool(
-                name="switch_knowledge_base",
-                description="Switch to a different knowledge base",
+                name="get_kb_stats",
+                description="Get detailed statistics about a specified knowledge base",
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "knowledge_base": {"type": "string", "description": "Name of the knowledge base to switch to"}
+                        "knowledge_base": {"type": "string", "description": "KB name (required)"}
                     },
                     "required": ["knowledge_base"]
-                }
-            ),
-            MCPTool(
-                name="get_kb_stats",
-                description="Get detailed statistics about current or specified knowledge base",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "knowledge_base": {"type": "string", "description": "KB name (optional, uses current if not specified)"}
-                    }
-                }
-            ),
-            # Session Management
-            MCPTool(
-                name="create_session",
-                description="Create a new conversation session",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "session_id": {"type": "string", "description": "Optional custom session ID"}
-                    }
-                }
-            ),
-            MCPTool(
-                name="load_session",
-                description="Load an existing conversation session",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "session_file": {"type": "string", "description": "Path to session file"}
-                    },
-                    "required": ["session_file"]
-                }
-            ),
-            MCPTool(
-                name="list_sessions",
-                description="List all available conversation sessions",
-                inputSchema={"type": "object", "properties": {}}
-            ),
-            MCPTool(
-                name="get_session_history",
-                description="Get conversation history for a session",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "session_id": {"type": "string", "description": "Session ID"},
-                        "limit": {"type": "number", "description": "Max number of exchanges to return", "default": 10}
-                    },
-                    "required": ["session_id"]
-                }
-            ),
-            MCPTool(
-                name="clear_session_history",
-                description="Clear conversation history for a session",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "session_id": {"type": "string", "description": "Session ID"}
-                    },
-                    "required": ["session_id"]
-                }
-            ),
-            MCPTool(
-                name="export_session",
-                description="Export session conversation to JSON file",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "session_id": {"type": "string", "description": "Session ID"},
-                        "output_file": {"type": "string", "description": "Output file path"}
-                    },
-                    "required": ["session_id", "output_file"]
                 }
             ),
             # Document Processing
@@ -398,14 +326,7 @@ class MCPServer:
         tool_handlers = {
             'ask_question': self.handle_ask_question,
             'list_knowledge_bases': self.handle_list_knowledge_bases,
-            'switch_knowledge_base': self.handle_switch_knowledge_base,
             'get_kb_stats': self.handle_get_kb_stats,
-            'create_session': self.handle_create_session,
-            'load_session': self.handle_load_session,
-            'list_sessions': self.handle_list_sessions,
-            'get_session_history': self.handle_get_session_history,
-            'clear_session_history': self.handle_clear_session_history,
-            'export_session': self.handle_export_session,
             'get_processing_status': self.handle_get_processing_status,
             'initialize_knowledge_base': self.handle_initialize_knowledge_base,
             'reload_knowledge_bases': self.handle_reload_knowledge_bases,
@@ -459,12 +380,23 @@ class MCPServer:
                 question, embeddings_path, kb_name, conv_context, verbose, timeout, max_chunks
             )
         else:
-            # Use current KB
-            if not self.current_embeddings_path:
-                raise ValueError("No knowledge base loaded")
-            retrieval_result = await self._perform_single_kb_retrieval(
-                question, self.current_embeddings_path, self.current_kb, conv_context, verbose, timeout, max_chunks
-            )
+            # No KBs specified - search all available KBs
+            if not self.knowledge_bases:
+                raise ValueError("No knowledge bases available")
+            all_kb_names = list(self.knowledge_bases.keys())
+            if len(all_kb_names) == 1:
+                # Only one KB available, use it directly
+                kb_name = all_kb_names[0]
+                kb_info = self.knowledge_bases[kb_name]
+                embeddings_path = kb_info['embeddings_path']
+                retrieval_result = await self._perform_single_kb_retrieval(
+                    question, embeddings_path, kb_name, conv_context, verbose, timeout, max_chunks
+                )
+            else:
+                # Multiple KBs available - search all of them
+                retrieval_result = await self._perform_multi_kb_retrieval(
+                    question, all_kb_names, conv_context, verbose, timeout, max_chunks
+                )
         # Format context based on requested format
         formatted_context = self._format_retrieval_context(retrieval_result, context_format)
         # Add to session history (store retrieval context instead of generated answer)
@@ -661,48 +593,17 @@ class MCPServer:
                 "display_name": kb_info['display_name'],
                 "chunk_count": kb_info['chunk_count'],
                 "file_size": kb_info['file_size'],
-                "embeddings_path": kb_info['embeddings_path'],
-                "is_current": kb_info['name'] == self.current_kb
+                "embeddings_path": kb_info['embeddings_path']
             }
             for kb_info in self.knowledge_bases.values()
         ]
-    async def handle_switch_knowledge_base(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle switch_knowledge_base tool"""
+    async def handle_get_kb_stats(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle get_kb_stats tool"""
         kb_name = args.get('knowledge_base')
         if not kb_name:
             raise ValueError("Knowledge base name is required")
         if kb_name not in self.knowledge_bases:
-            available_kbs = list(self.knowledge_bases.keys())
-            raise ValueError(f"Knowledge base '{kb_name}' not found. Available: {available_kbs}")
-        kb_info = self.knowledge_bases[kb_name]
-        embeddings_path = kb_info['embeddings_path']
-        if not os.path.exists(embeddings_path):
-            raise ValueError(f"Embeddings file not found: {embeddings_path}")
-        # Load the new knowledge base
-        self.current_embeddings_path = embeddings_path
-        self.corpus = load_corpus(embeddings_path)
-        idx_sum, idx_full, E_sum, E_full, bm25 = build_indices(self.corpus)
-        self.indices = {
-            'faiss_sum': idx_sum,
-            'faiss_full': idx_full,
-            'E_sum': E_sum,
-            'E_full': E_full,
-            'bm25': bm25
-        }
-        self.query_encoder_name, self.query_encoder = load_query_encoder()
-        self.current_kb = kb_name
-        self.logger.info(f"Switched to knowledge base: {kb_name}")
-        return {
-            "switched_to": kb_name,
-            "display_name": kb_info['display_name'],
-            "chunk_count": kb_info['chunk_count'],
-            "file_size": kb_info['file_size']
-        }
-    async def handle_get_kb_stats(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle get_kb_stats tool"""
-        kb_name = args.get('knowledge_base', self.current_kb)
-        if not kb_name or kb_name not in self.knowledge_bases:
-            raise ValueError(f"Knowledge base '{kb_name}' not found")
+            raise ValueError(f"Knowledge base '{kb_name}' not found. Available: {list(self.knowledge_bases.keys())}")
         kb_info = self.knowledge_bases[kb_name]
         # Get additional stats from database if available
         stats = dict(kb_info)
@@ -713,120 +614,6 @@ class MCPServer:
         except Exception as e:
             self.logger.warning(f"Could not get database stats: {e}")
         return stats
-    async def handle_create_session(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle create_session tool"""
-        session_id = args.get('session_id') or str(uuid.uuid4())
-        if session_id in self.sessions:
-            raise ValueError(f"Session '{session_id}' already exists")
-        self.sessions[session_id] = ChatSession(auto_continue=False)
-        return {
-            "session_id": session_id,
-            "created_at": datetime.now().isoformat(),
-            "status": "active"
-        }
-    async def handle_load_session(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle load_session tool"""
-        session_file = args.get('session_file')
-        if not session_file:
-            raise ValueError("Session file path is required")
-        # Always look for session files in the Sessions folder in the root directory
-        root_dir = Path(__file__).parent.resolve()
-        sessions_dir = root_dir / "Sessions"
-        session_path = Path(session_file)
-        if not session_path.is_absolute():
-            session_path = sessions_dir / session_file
-        if not session_path.exists():
-            raise ValueError(f"Session file not found: {session_path}")
-        session_id = session_path.stem
-        # If already loaded, just return info about the existing session
-        if session_id in self.sessions:
-            session = self.sessions[session_id]
-        else:
-            session = ChatSession(str(session_path), auto_continue=True)
-            self.sessions[session_id] = session
-        return {
-            "session_id": session_id,
-            "session_file": str(session_path),
-            "history_count": len(session.history),
-            "status": "loaded"
-        }
-    async def handle_list_sessions(self, args: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Handle list_sessions tool"""
-        sessions_dir = Path("sessions")
-        active_sessions = []
-        # Add currently active sessions
-        for session_id, session in self.sessions.items():
-            active_sessions.append({
-                "session_id": session_id,
-                "history_count": len(session.history),
-                "status": "active",
-                "session_file": session.session_file if session.session_file else None
-            })
-        # Add available session files
-        if sessions_dir.exists():
-            for session_file in sessions_dir.glob("*.json"):
-                session_id = session_file.stem
-                if session_id not in [s["session_id"] for s in active_sessions]:
-                    try:
-                        with open(session_file) as f:
-                            data = json.load(f)
-                        active_sessions.append({
-                            "session_id": session_id,
-                            "history_count": len(data.get('history', [])),
-                            "status": "saved",
-                            "session_file": str(session_file),
-                            "modified_time": datetime.fromtimestamp(session_file.stat().st_mtime).isoformat()
-                        })
-                    except Exception as e:
-                        self.logger.warning(f"Could not read session file {session_file}: {e}")
-        return active_sessions
-    async def handle_get_session_history(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle get_session_history tool"""
-        session_id = args.get('session_id')
-        limit = args.get('limit', 10)
-        if not session_id:
-            raise ValueError("Session ID is required")
-        if session_id not in self.sessions:
-            raise ValueError(f"Session '{session_id}' not found")
-        session = self.sessions[session_id]
-        history = session.history[-limit:] if session.history else []
-        return {
-            "session_id": session_id,
-            "history": history,
-            "total_exchanges": len(session.history),
-            "returned_exchanges": len(history)
-        }
-    async def handle_clear_session_history(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle clear_session_history tool"""
-        session_id = args.get('session_id')
-        if not session_id:
-            raise ValueError("Session ID is required")
-        if session_id not in self.sessions:
-            raise ValueError(f"Session '{session_id}' not found")
-        session = self.sessions[session_id]
-        history_count = len(session.history)
-        session.clear_history()
-        return {
-            "session_id": session_id,
-            "cleared_exchanges": history_count,
-            "status": "cleared"
-        }
-    async def handle_export_session(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle export_session tool"""
-        session_id = args.get('session_id')
-        output_file = args.get('output_file')
-        if not session_id or not output_file:
-            raise ValueError("Session ID and output file are required")
-        if session_id not in self.sessions:
-            raise ValueError(f"Session '{session_id}' not found")
-        session = self.sessions[session_id]
-        session.export_session(output_file)
-        return {
-            "session_id": session_id,
-            "output_file": output_file,
-            "exported_exchanges": len(session.history),
-            "status": "exported"
-        }
     async def handle_get_processing_status(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Handle get_processing_status tool"""
         from initialize_fast import SynapseDB, FastEmbeddingService
@@ -890,9 +677,9 @@ class MCPServer:
             return {
                 "status": "success",
                 "available_kbs": list(self.knowledge_bases.keys()),
+                "kb_count": len(self.knowledge_bases),
                 "added": list(added),
-                "removed": list(removed),
-                "current_kb": self.current_kb
+                "removed": list(removed)
             }
         except Exception as e:
             self.logger.error(f"Failed to reload knowledge bases: {e}")
@@ -916,8 +703,8 @@ class MCPServer:
         return {
             "server_name": "Synapse MCP Server",
             "version": "1.0.0",
-            "current_kb": self.current_kb,
             "available_kbs": list(self.knowledge_bases.keys()),
+            "kb_count": len(self.knowledge_bases),
             "active_sessions": len(self.sessions),
             "verbose_mode": self.verbose_mode,
             "artifacts_dir": self.artifacts_dir,
