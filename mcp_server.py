@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 """
 Synapse MCP (Model Context Protocol) Server
-
 This module implements an MCP server that exposes all Synapse CLI functionality
 via HTTP transport. It provides tools for knowledge base queries,
 session management, document processing, and more.
-
 Features:
 - HTTP transport with JSON-RPC 2.0 protocol
 - All CLI commands exposed as MCP tools
@@ -13,12 +11,10 @@ Features:
 - Session persistence and management
 - Knowledge base switching and management
 - Document processing status monitoring
-
 Usage:
     python mcp_server.py --http-port 3000
     python mcp_server.py --transport http --http-port 3000
 """
-
 import argparse
 import asyncio
 import json
@@ -32,7 +28,6 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any, Union
 from dataclasses import dataclass, asdict
 import traceback
-
 # HTTP server imports
 try:
     from flask import Flask, request, jsonify, Response
@@ -40,31 +35,27 @@ try:
     FLASK_AVAILABLE = True
 except ImportError:
     FLASK_AVAILABLE = False
-
 # Import Synapse components
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-from chat import ChatSession
-from pipeline.query import (
+from chat import ChatSession  # noqa: E402
+from pipeline.query import (  # noqa: E402
     load_corpus, build_indices, load_query_encoder, encode_query,
     dense_search, sparse_search, rrf, per_doc_cap, rerank,
     list_available_knowledge_bases
 )
-from pipeline.database import SynapseDB
-
+from pipeline.database import SynapseDB  # noqa: E402
 
 # MCP Protocol Types and Classes
-@dataclass  
+@dataclass
 class MCPTool:
     """MCP tool definition"""
     name: str
     description: str
     inputSchema: Dict[str, Any]
 
-
 class MCPServer:
     """Main MCP Server implementation"""
-    
+
     def __init__(self, artifacts_dir: str = "artifacts"):
         self.artifacts_dir = artifacts_dir
         self.sessions: Dict[str, ChatSession] = {}
@@ -77,16 +68,14 @@ class MCPServer:
         self.current_kb = None
         self.verbose_mode = False
         self.last_session_id = None  # For FastMCP-style session tracking
-        
         # Setup logging
         self.setup_logging()
-        
         # Initialize default knowledge base
         self.initialize_knowledge_base()
-        
+
         # Define MCP tools
         self.tools = self.define_tools()
-        
+
     def setup_logging(self):
         """Setup comprehensive logging for MCP operations"""
         logging.basicConfig(
@@ -99,7 +88,7 @@ class MCPServer:
         )
         self.logger = logging.getLogger('MCPServer')
         self.logger.info("MCP Server initialized")
-        
+
     def initialize_knowledge_base(self):
         """Initialize the default knowledge base and load available KBs"""
         try:
@@ -107,12 +96,10 @@ class MCPServer:
             self.knowledge_bases = {
                 kb['name']: kb for kb in list_available_knowledge_bases(self.artifacts_dir)
             }
-            
             if self.knowledge_bases:
                 # Set the first KB as current and load it
                 self.current_kb = next(iter(self.knowledge_bases.keys()))
                 kb_info = self.knowledge_bases[self.current_kb]
-                
                 # Load the embeddings for the current KB
                 embeddings_path = kb_info['embeddings_path']
                 if os.path.exists(embeddings_path):
@@ -130,16 +117,14 @@ class MCPServer:
                     self.logger.info(f"Loaded knowledge base: {self.current_kb} ({embeddings_path})")
                 else:
                     self.logger.error(f"Embeddings file not found: {embeddings_path}")
-                
                 self.logger.info(f"Available KBs: {list(self.knowledge_bases.keys())}")
             else:
                 self.logger.warning("No knowledge bases found")
-                    
         except Exception as e:
             self.logger.error(f"Failed to initialize knowledge base: {e}")
             import traceback
             self.logger.error(traceback.format_exc())
-    
+
     def define_tools(self) -> List[MCPTool]:
         """Define all available MCP tools based on CLI functionality"""
         return [
@@ -155,12 +140,12 @@ class MCPServer:
                         "verbose": {"type": "boolean", "description": "Enable detailed retrieval information"},
                         "timeout": {"type": "number", "description": "Query timeout in seconds", "default": 60},
                         "knowledge_bases": {
-                            "type": "array", 
+                            "type": "array",
                             "description": "List of knowledge base names to search (optional - uses current KB if not specified)",
                             "items": {"type": "string"}
                         },
                         "search_mode": {
-                            "type": "string", 
+                            "type": "string",
                             "description": "Multi-KB search mode: 'concatenated' (unified search) or 'separate' (individual searches)",
                             "enum": ["concatenated", "separate"],
                             "default": "concatenated"
@@ -182,7 +167,6 @@ class MCPServer:
                     "required": ["question"]
                 }
             ),
-            
             # Knowledge Base Management
             MCPTool(
                 name="list_knowledge_bases",
@@ -204,13 +188,12 @@ class MCPServer:
                 name="get_kb_stats",
                 description="Get detailed statistics about current or specified knowledge base",
                 inputSchema={
-                    "type": "object", 
+                    "type": "object",
                     "properties": {
                         "knowledge_base": {"type": "string", "description": "KB name (optional, uses current if not specified)"}
                     }
                 }
             ),
-            
             # Session Management
             MCPTool(
                 name="create_session",
@@ -273,7 +256,6 @@ class MCPServer:
                     "required": ["session_id", "output_file"]
                 }
             ),
-            
             # Document Processing
             MCPTool(
                 name="get_processing_status",
@@ -291,7 +273,6 @@ class MCPServer:
                     }
                 }
             ),
-            
             # Configuration
             MCPTool(
                 name="set_verbose_mode",
@@ -305,15 +286,14 @@ class MCPServer:
                 }
             ),
             MCPTool(
-                name="get_server_info", 
+                name="get_server_info",
                 description="Get MCP server information and status",
                 inputSchema={"type": "object", "properties": {}}
             )
         ]
-    
+
     async def handle_message(self, message: Dict[str, Any], session_id: Optional[str] = None) -> Dict[str, Any]:
         """Handle incoming MCP message
-        
         Args:
             message: The MCP JSON-RPC message
             session_id: Optional session ID from FastMCP-style headers
@@ -322,17 +302,13 @@ class MCPServer:
             # Store session ID for use in responses
             if session_id:
                 self.last_session_id = session_id
-            
             # Validate message structure
             if not isinstance(message, dict) or message.get('jsonrpc') != '2.0':
                 return self.create_error_response(None, -32600, "Invalid Request")
-            
             method = message.get('method')
             params = message.get('params', {})
             msg_id = message.get('id')
-            
             self.logger.info(f"Handling method: {method} with params: {params}")
-            
             # Handle MCP protocol methods
             if method == 'initialize':
                 return self.handle_initialize(msg_id, params)
@@ -344,12 +320,11 @@ class MCPServer:
                 return None  # No response needed for notifications
             else:
                 return self.create_error_response(msg_id, -32601, f"Method not found: {method}")
-                
         except Exception as e:
             self.logger.error(f"Error handling message: {e}")
             self.logger.error(traceback.format_exc())
             return self.create_error_response(message.get('id'), -32603, f"Internal error: {str(e)}")
-    
+
     def create_error_response(self, msg_id: Optional[Union[str, int]], code: int, message: str, data: Any = None) -> Dict[str, Any]:
         """Create MCP error response"""
         return {
@@ -361,7 +336,7 @@ class MCPServer:
                 "data": data
             }
         }
-    
+
     def create_success_response(self, msg_id: Union[str, int], result: Any) -> Dict[str, Any]:
         """Create MCP success response"""
         return {
@@ -369,7 +344,6 @@ class MCPServer:
             "id": msg_id,
             "result": result
         }
-    
     def handle_initialize(self, msg_id: Union[str, int], params: Dict[str, Any]) -> Dict[str, Any]:
         """Handle MCP initialize request"""
         return self.create_success_response(msg_id, {
@@ -383,16 +357,15 @@ class MCPServer:
                 "version": "1.0.0"
             }
         })
-    
+
     def handle_list_tools(self, msg_id: Union[str, int]) -> Dict[str, Any]:
         """Handle tools/list request"""
         return self.create_success_response(msg_id, {
             "tools": [asdict(tool) for tool in self.tools]
         })
-    
+
     async def handle_tool_call(self, msg_id: Union[str, int], params: Dict[str, Any], session_id: Optional[str] = None) -> Dict[str, Any]:
         """Handle tools/call request
-        
         Args:
             msg_id: Message ID
             params: Tool parameters
@@ -400,14 +373,11 @@ class MCPServer:
         """
         tool_name = params.get('name')
         arguments = params.get('arguments', {})
-        
         if not tool_name:
             return self.create_error_response(msg_id, -32602, "Missing tool name")
-        
         # Inject session_id into arguments for ask_question if provided via header
         if tool_name == 'ask_question' and session_id and 'session_id' not in arguments:
             arguments['session_id'] = session_id
-        
         # Route to appropriate tool handler
         tool_handlers = {
             'ask_question': self.handle_ask_question,
@@ -425,10 +395,8 @@ class MCPServer:
             'set_verbose_mode': self.handle_set_verbose_mode,
             'get_server_info': self.handle_get_server_info
         }
-        
         if tool_name not in tool_handlers:
             return self.create_error_response(msg_id, -32601, f"Unknown tool: {tool_name}")
-        
         try:
             result = await tool_handlers[tool_name](arguments)
             return self.create_success_response(msg_id, {"content": [{"type": "text", "text": json.dumps(result, indent=2)}]})
@@ -436,8 +404,9 @@ class MCPServer:
             self.logger.error(f"Tool execution error for {tool_name}: {e}")
             self.logger.error(traceback.format_exc())
             return self.create_error_response(msg_id, -32603, f"Tool execution failed: {str(e)}")
-    
+
     # Tool Implementation Methods
+
     async def handle_ask_question(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Handle ask_question tool - returns retrieval context instead of generated response"""
         question = args.get('question')
@@ -448,19 +417,14 @@ class MCPServer:
         search_mode = args.get('search_mode', 'concatenated')
         context_format = args.get('context_format', 'structured')  # structured, raw, markdown
         max_chunks = args.get('max_chunks', 10)
-        
         if not question:
             raise ValueError("Question is required")
-        
         # Get or create session
         if session_id not in self.sessions:
             self.sessions[session_id] = ChatSession(auto_continue=False)
-        
         session = self.sessions[session_id]
-        
         # Get conversation context for retrieval
         conv_context = session.get_context(last_n=3) if hasattr(session, 'get_context') else ""
-        
         # Perform retrieval based on KB selection
         if knowledge_bases and len(knowledge_bases) > 1:
             # Multi-KB search
@@ -472,7 +436,6 @@ class MCPServer:
             kb_name = knowledge_bases[0]
             if kb_name not in self.knowledge_bases:
                 raise ValueError(f"Knowledge base '{kb_name}' not found. Available: {list(self.knowledge_bases.keys())}")
-            
             kb_info = self.knowledge_bases[kb_name]
             embeddings_path = kb_info['embeddings_path']
             retrieval_result = await self._perform_single_kb_retrieval(
@@ -482,18 +445,18 @@ class MCPServer:
             # Use current KB
             if not self.current_embeddings_path:
                 raise ValueError("No knowledge base loaded")
-            
             retrieval_result = await self._perform_single_kb_retrieval(
                 question, self.current_embeddings_path, self.current_kb, conv_context, verbose, timeout, max_chunks
             )
-        
         # Format context based on requested format
         formatted_context = self._format_retrieval_context(retrieval_result, context_format)
-        
         # Add to session history (store retrieval context instead of generated answer)
-        session.add_exchange(question, f"[RETRIEVAL] {len(retrieval_result['chunks'])} chunks found", 
-                           f"Retrieved from: {', '.join(retrieval_result['knowledge_bases'])}")
-        
+        session.add_exchange(
+            question,
+            f"[RETRIEVAL] {len(retrieval_result['chunks'])} chunks found",
+            f"Retrieved from: {', '.join(retrieval_result['knowledge_bases'])}"
+        )
+
         return {
             "retrieval_context": {
                 "query": question,
@@ -507,13 +470,14 @@ class MCPServer:
             "knowledge_bases": retrieval_result['knowledge_bases'],
             "search_mode": search_mode
         }
-    
-    async def _perform_single_kb_retrieval(self, question: str, embeddings_path: str, kb_name: str, 
-                                         conv_context: str, verbose: bool, timeout: int, max_chunks: int) -> Dict[str, Any]:
+
+    async def _perform_single_kb_retrieval(
+        self, question: str, embeddings_path: str, kb_name: str,
+        conv_context: str, verbose: bool, timeout: int, max_chunks: int
+    ) -> Dict[str, Any]:
         """Perform retrieval on a single knowledge base"""
         import time
         start_time = time.time()
-        
         # Load corpus and build indices if not already loaded
         if not self.corpus or self.current_embeddings_path != embeddings_path:
             self.corpus = load_corpus(embeddings_path)
@@ -526,26 +490,19 @@ class MCPServer:
                 'bm25': bm25
             }
             self.query_encoder_name, self.query_encoder = load_query_encoder()
-        
         # Encode query
         query_embedding = encode_query(question, self.query_encoder)
-        
         # Perform dense and sparse search
-        dense_results = dense_search(query_embedding, self.indices['faiss_sum'], max_chunks*2)
-        sparse_results = sparse_search(question, self.indices['bm25'], max_chunks*2)
-        
+        dense_results = dense_search(query_embedding, self.indices['faiss_sum'], max_chunks * 2)
+        sparse_results = sparse_search(question, self.indices['bm25'], max_chunks * 2)
         # Combine results with RRF
-        combined_results = rrf([dense_results, sparse_results], weights=[1.0, 0.8], rrf_k=max_chunks*2)
-        
+        combined_results = rrf([dense_results, sparse_results], weights=[1.0, 0.8], rrf_k=max_chunks * 2)
         # Apply per-document capping
         capped_results = per_doc_cap(combined_results, self.corpus, 3)
-        
         # Rerank results
         reranked_results = rerank(question, capped_results, self.corpus)
-        
         # Take top results (skip MMR for now to avoid complexity)
         final_indices = reranked_results[:max_chunks]
-        
         # Extract chunks with metadata
         chunks = []
         for i, idx in enumerate(final_indices):
@@ -564,9 +521,7 @@ class MCPServer:
                     "metadata": item.get('metadata', {})
                 }
                 chunks.append(chunk_data)
-        
         search_time = (time.time() - start_time) * 1000
-        
         return {
             "chunks": chunks,
             "knowledge_bases": [kb_name],
@@ -584,42 +539,35 @@ class MCPServer:
                 "final_k": len(final_indices)
             }
         }
-    
-    async def _perform_multi_kb_retrieval(self, question: str, knowledge_bases: List[str], 
-                                        conv_context: str, verbose: bool, timeout: int, max_chunks: int) -> Dict[str, Any]:
+
+    async def _perform_multi_kb_retrieval(
+        self, question: str, knowledge_bases: List[str],
+        conv_context: str, verbose: bool, timeout: int, max_chunks: int
+    ) -> Dict[str, Any]:
         """Perform retrieval across multiple knowledge bases"""
-        from chat import enhanced_answer_multi_kb
-        
         # Validate knowledge bases
         for kb_name in knowledge_bases:
             if kb_name not in self.knowledge_bases:
                 raise ValueError(f"Knowledge base '{kb_name}' not found. Available: {list(self.knowledge_bases.keys())}")
-        
         # Use the existing multi-KB function but extract retrieval data
         # We'll need to modify this to return retrieval context instead of generated answer
         # For now, let's implement a simplified version
-        
         all_chunks = []
         all_kb_names = []
         total_search_time = 0
-        
         for kb_name in knowledge_bases:
             kb_info = self.knowledge_bases[kb_name]
             embeddings_path = kb_info['embeddings_path']
-            
             # Perform retrieval on this KB
             kb_result = await self._perform_single_kb_retrieval(
                 question, embeddings_path, kb_name, conv_context, verbose, timeout, max_chunks // len(knowledge_bases)
             )
-            
             all_chunks.extend(kb_result['chunks'])
             all_kb_names.append(kb_name)
             total_search_time += kb_result['metadata']['search_time_ms']
-        
         # Sort by relevance score and take top chunks
         all_chunks.sort(key=lambda x: x['relevance_score'], reverse=True)
         final_chunks = all_chunks[:max_chunks]
-        
         return {
             "chunks": final_chunks,
             "knowledge_bases": all_kb_names,
@@ -634,56 +582,45 @@ class MCPServer:
                 "final_k": len(final_chunks)
             }
         }
-    
     def _format_retrieval_context(self, retrieval_result: Dict[str, Any], context_format: str) -> Dict[str, Any]:
         """Format retrieval context based on requested format"""
         chunks = retrieval_result['chunks']
-        
         if context_format == 'raw':
             # Return raw chunks as-is
             return {
                 "raw_chunks": chunks,
                 "format": "raw"
             }
-        
         elif context_format == 'markdown':
             # Format as markdown
             markdown_content = []
             citations = []
-            
             for i, chunk in enumerate(chunks, 1):
                 source_name = chunk['source_name']
                 page = chunk.get('page', '')
                 page_ref = f":{page}" if page else ""
-                
                 markdown_content.append(f"## Chunk {i}\n")
                 markdown_content.append(f"**Source:** {source_name}{page_ref}\n")
                 markdown_content.append(f"**Relevance:** {chunk['relevance_score']:.3f}\n")
                 markdown_content.append(f"**Content:**\n{chunk['content']}\n")
-                
                 citations.append(f"[{i}] {source_name}{page_ref}")
-            
             return {
                 "markdown_content": "\n".join(markdown_content),
                 "citations": citations,
                 "format": "markdown"
             }
-        
         else:  # structured (default)
             # Format as structured context ready for LLM
             structured_parts = []
             citations = []
             images = []
-            
             for i, chunk in enumerate(chunks, 1):
                 source_name = chunk['source_name']
                 page = chunk.get('page', '')
                 page_ref = f":{page}" if page else ""
-                
                 # Add to structured content
                 structured_parts.append(f"[{i}] {chunk['content']}")
                 citations.append(f"[{i}] {source_name}{page_ref}")
-                
                 # Check for images in metadata
                 if 'image_path' in chunk.get('metadata', {}):
                     images.append({
@@ -692,7 +629,6 @@ class MCPServer:
                         "context": f"Referenced in {source_name}{page_ref}",
                         "chunk_id": chunk['chunk_id']
                     })
-            
             return {
                 "structured_text": "\n\n".join(structured_parts),
                 "citations": citations,
@@ -700,7 +636,6 @@ class MCPServer:
                 "summary": f"Retrieved {len(chunks)} relevant chunks from {len(retrieval_result['knowledge_bases'])} knowledge base(s)",
                 "format": "structured"
             }
-    
     async def handle_list_knowledge_bases(self, args: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Handle list_knowledge_bases tool"""
         return [
@@ -714,24 +649,18 @@ class MCPServer:
             }
             for kb_info in self.knowledge_bases.values()
         ]
-    
     async def handle_switch_knowledge_base(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Handle switch_knowledge_base tool"""
         kb_name = args.get('knowledge_base')
-        
         if not kb_name:
             raise ValueError("Knowledge base name is required")
-        
         if kb_name not in self.knowledge_bases:
             available_kbs = list(self.knowledge_bases.keys())
             raise ValueError(f"Knowledge base '{kb_name}' not found. Available: {available_kbs}")
-        
         kb_info = self.knowledge_bases[kb_name]
         embeddings_path = kb_info['embeddings_path']
-        
         if not os.path.exists(embeddings_path):
             raise ValueError(f"Embeddings file not found: {embeddings_path}")
-        
         # Load the new knowledge base
         self.current_embeddings_path = embeddings_path
         self.corpus = load_corpus(embeddings_path)
@@ -745,90 +674,69 @@ class MCPServer:
         }
         self.query_encoder_name, self.query_encoder = load_query_encoder()
         self.current_kb = kb_name
-        
         self.logger.info(f"Switched to knowledge base: {kb_name}")
-        
         return {
             "switched_to": kb_name,
             "display_name": kb_info['display_name'],
             "chunk_count": kb_info['chunk_count'],
             "file_size": kb_info['file_size']
         }
-    
     async def handle_get_kb_stats(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Handle get_kb_stats tool"""
         kb_name = args.get('knowledge_base', self.current_kb)
-        
         if not kb_name or kb_name not in self.knowledge_bases:
             raise ValueError(f"Knowledge base '{kb_name}' not found")
-        
         kb_info = self.knowledge_bases[kb_name]
-        
         # Get additional stats from database if available
         stats = dict(kb_info)
-        
         try:
             db = SynapseDB()
             folder_stats = db.get_folder_stats(kb_name)
             stats.update(folder_stats)
         except Exception as e:
             self.logger.warning(f"Could not get database stats: {e}")
-        
         return stats
-    
     async def handle_create_session(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Handle create_session tool"""
         session_id = args.get('session_id') or str(uuid.uuid4())
-        
         if session_id in self.sessions:
             raise ValueError(f"Session '{session_id}' already exists")
-        
         self.sessions[session_id] = ChatSession(auto_continue=False)
-        
         return {
             "session_id": session_id,
             "created_at": datetime.now().isoformat(),
             "status": "active"
         }
-    
     async def handle_load_session(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Handle load_session tool"""
         session_file = args.get('session_file')
-
         if not session_file:
             raise ValueError("Session file path is required")
-
         # Always look for session files in the Sessions folder in the root directory
         root_dir = Path(__file__).parent.resolve()
         sessions_dir = root_dir / "Sessions"
         session_path = Path(session_file)
         if not session_path.is_absolute():
             session_path = sessions_dir / session_file
-
         if not session_path.exists():
             raise ValueError(f"Session file not found: {session_path}")
-
         session_id = session_path.stem
-
         # If already loaded, just return info about the existing session
         if session_id in self.sessions:
             session = self.sessions[session_id]
         else:
             session = ChatSession(str(session_path), auto_continue=True)
             self.sessions[session_id] = session
-
         return {
             "session_id": session_id,
             "session_file": str(session_path),
             "history_count": len(session.history),
             "status": "loaded"
         }
-    
     async def handle_list_sessions(self, args: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Handle list_sessions tool"""
         sessions_dir = Path("sessions")
         active_sessions = []
-        
         # Add currently active sessions
         for session_id, session in self.sessions.items():
             active_sessions.append({
@@ -837,7 +745,6 @@ class MCPServer:
                 "status": "active",
                 "session_file": session.session_file if session.session_file else None
             })
-        
         # Add available session files
         if sessions_dir.exists():
             for session_file in sessions_dir.glob("*.json"):
@@ -855,89 +762,67 @@ class MCPServer:
                         })
                     except Exception as e:
                         self.logger.warning(f"Could not read session file {session_file}: {e}")
-        
         return active_sessions
-    
     async def handle_get_session_history(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Handle get_session_history tool"""
         session_id = args.get('session_id')
         limit = args.get('limit', 10)
-        
         if not session_id:
             raise ValueError("Session ID is required")
-        
         if session_id not in self.sessions:
             raise ValueError(f"Session '{session_id}' not found")
-        
         session = self.sessions[session_id]
         history = session.history[-limit:] if session.history else []
-        
         return {
             "session_id": session_id,
             "history": history,
             "total_exchanges": len(session.history),
             "returned_exchanges": len(history)
         }
-    
     async def handle_clear_session_history(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Handle clear_session_history tool"""
         session_id = args.get('session_id')
-        
         if not session_id:
             raise ValueError("Session ID is required")
-        
         if session_id not in self.sessions:
             raise ValueError(f"Session '{session_id}' not found")
-        
         session = self.sessions[session_id]
         history_count = len(session.history)
         session.clear_history()
-        
         return {
             "session_id": session_id,
             "cleared_exchanges": history_count,
             "status": "cleared"
         }
-    
     async def handle_export_session(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Handle export_session tool"""
         session_id = args.get('session_id')
         output_file = args.get('output_file')
-        
         if not session_id or not output_file:
             raise ValueError("Session ID and output file are required")
-        
         if session_id not in self.sessions:
             raise ValueError(f"Session '{session_id}' not found")
-        
         session = self.sessions[session_id]
         session.export_session(output_file)
-        
         return {
             "session_id": session_id,
             "output_file": output_file,
             "exported_exchanges": len(session.history),
             "status": "exported"
         }
-
     async def handle_get_processing_status(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Handle get_processing_status tool"""
         from initialize_fast import SynapseDB, FastEmbeddingService
-        
         db = SynapseDB()
         embedding_service = FastEmbeddingService()
-        
         folders = db.get_all_folders()
-        
         status = {
             "total_folders": len(folders),
             "folder_status": []
         }
-        
         for folder_key in folders:
             folder_stats = db.get_folder_stats(folder_key)
             embed_status = embedding_service.get_embedding_status(folder_key)
-            
             status["folder_status"].append({
                 "folder": folder_key,
                 "completed_docs": folder_stats['completed_docs'],
@@ -947,26 +832,18 @@ class MCPServer:
                 "embedded_chunks": folder_stats['embedded_chunks'],
                 "completion_rate": embed_status['completion_rate']
             })
-        
         return status
-    
     async def handle_initialize_knowledge_base(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Handle initialize_knowledge_base tool"""
         folder = args.get('folder')
         cleanup = args.get('cleanup', False)
-        
         import subprocess
-        
         cmd = [sys.executable, "initialize_fast.py", "--verbose"]
-        
         if folder:
             cmd.extend(["--folder", folder])
-        
         if cleanup:
             cmd.append("--cleanup")
-        
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-        
         return {
             "command": " ".join(cmd),
             "return_code": result.returncode,
@@ -974,21 +851,16 @@ class MCPServer:
             "stderr": result.stderr,
             "status": "success" if result.returncode == 0 else "failed"
         }
-    
     async def handle_set_verbose_mode(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Handle set_verbose_mode tool"""
         verbose = args.get('verbose')
-        
         if verbose is None:
             raise ValueError("Verbose flag is required")
-        
         self.verbose_mode = bool(verbose)
-        
         return {
             "verbose_mode": self.verbose_mode,
             "status": "updated"
         }
-    
     async def handle_get_server_info(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Handle get_server_info tool"""
         return {
@@ -1002,29 +874,22 @@ class MCPServer:
             "transports": ["http"],
             "uptime": time.time() - getattr(self, 'start_time', time.time())
         }
-
-
 # Transport Layer Implementations
 
 class HTTPTransport:
     """HTTP transport for MCP server"""
-    
+
     def __init__(self, mcp_server: MCPServer, port: int = 3000, cors: bool = True):
         if not FLASK_AVAILABLE:
             raise ImportError("Flask is required for HTTP transport. Install with: pip install flask flask-cors")
-        
         self.mcp_server = mcp_server
         self.port = port
         self.app = Flask(__name__)
-        
         if cors:
             CORS(self.app)
-        
         self.setup_routes()
-        
     def setup_routes(self):
         """Setup Flask routes for MCP protocol"""
-        
         @self.app.route('/mcp', methods=['POST'])
         def handle_mcp_request():
             """Handle MCP JSON-RPC requests - supports both JSON and SSE formats"""
@@ -1032,16 +897,19 @@ class HTTPTransport:
                 data = request.get_json()
                 if not data:
                     return jsonify(self.mcp_server.create_error_response(None, -32700, "Parse error")), 400
-                
                 # Get session ID from headers (FastMCP-style)
                 session_id = request.headers.get('mcp-session-id')
-                
+                # Generate a session ID if one doesn't exist (for first request)
+                if not session_id:
+                    session_id = str(uuid.uuid4())
+                    self.mcp_server.last_session_id = session_id
+                    self.mcp_server.logger.debug(f"Generated new session ID: {session_id}")
                 # Check if client wants SSE format via Accept header
                 accept_header = request.headers.get('Accept', '')
                 wants_sse = 'text/event-stream' in accept_header
-                
                 # If SSE requested, use SSE format
                 if wants_sse:
+
                     def generate():
                         """Generator for SSE stream"""
                         try:
@@ -1055,7 +923,6 @@ class HTTPTransport:
                                             yield f"event: session\ndata: {session_id}\n\n"
                                         elif hasattr(self.mcp_server, 'last_session_id') and self.mcp_server.last_session_id:
                                             yield f"event: session\ndata: {self.mcp_server.last_session_id}\n\n"
-                                        
                                         yield f"event: message\ndata: {json.dumps(response)}\n\n"
                                         yield "event: done\ndata: {}\n\n"
                             else:
@@ -1066,7 +933,6 @@ class HTTPTransport:
                                         yield f"event: session\ndata: {session_id}\n\n"
                                     elif hasattr(self.mcp_server, 'last_session_id') and self.mcp_server.last_session_id:
                                         yield f"event: session\ndata: {self.mcp_server.last_session_id}\n\n"
-                                    
                                     yield f"event: message\ndata: {json.dumps(response)}\n\n"
                                     yield "event: done\ndata: {}\n\n"
                         except Exception as e:
@@ -1074,19 +940,12 @@ class HTTPTransport:
                                 data.get('id') if isinstance(data, dict) else None, -32603, f"Internal error: {str(e)}"
                             )
                             yield f"event: error\ndata: {json.dumps(error_response)}\n\n"
-                    
                     response = Response(generate(), mimetype='text/event-stream')
                     response.headers['Cache-Control'] = 'no-cache'
                     response.headers['X-Accel-Buffering'] = 'no'
-                    
-                    # Add session ID to response headers
-                    if session_id:
-                        response.headers['mcp-session-id'] = session_id
-                    elif hasattr(self.mcp_server, 'last_session_id') and self.mcp_server.last_session_id:
-                        response.headers['mcp-session-id'] = self.mcp_server.last_session_id
-                    
+                    # Always add session ID to response headers (generate if needed)
+                    response.headers['mcp-session-id'] = session_id
                     return response
-                
                 # Otherwise, return JSON (default behavior)
                 # Handle batch requests
                 if isinstance(data, list):
@@ -1102,19 +961,12 @@ class HTTPTransport:
                         result = jsonify(response)
                     else:
                         return '', 204  # No Content for notifications
-                
-                # Add session ID to response headers if we created/used one
-                if session_id:
-                    result.headers['mcp-session-id'] = session_id
-                elif hasattr(self.mcp_server, 'last_session_id') and self.mcp_server.last_session_id:
-                    result.headers['mcp-session-id'] = self.mcp_server.last_session_id
-                
+                # Always add session ID to response headers (generate if needed)
+                result.headers['mcp-session-id'] = session_id
                 return result
-                        
             except Exception as e:
                 self.mcp_server.logger.error(f"HTTP request error: {e}")
                 return jsonify(self.mcp_server.create_error_response(None, -32603, "Internal error")), 500
-        
         @self.app.route('/sse', methods=['POST'])
         def handle_sse_request():
             """Handle MCP requests with Server-Sent Events (SSE) response"""
@@ -1122,52 +974,43 @@ class HTTPTransport:
                 data = request.get_json()
                 if not data:
                     return jsonify(self.mcp_server.create_error_response(None, -32700, "Parse error")), 400
-                
                 # Get session ID from headers (FastMCP-style)
                 session_id = request.headers.get('mcp-session-id')
-                
+                # Generate a session ID if one doesn't exist (for first request)
+                if not session_id:
+                    session_id = str(uuid.uuid4())
+                    self.mcp_server.last_session_id = session_id
+                    self.mcp_server.logger.debug(f"Generated new session ID: {session_id}")
                 def generate():
                     """Generator for SSE stream"""
                     try:
                         # Process the request
                         response = asyncio.run(self.mcp_server.handle_message(data, session_id))
-                        
                         if response:
                             # Send session ID as first event if available
                             if session_id:
                                 yield f"event: session\ndata: {session_id}\n\n"
                             elif hasattr(self.mcp_server, 'last_session_id') and self.mcp_server.last_session_id:
                                 yield f"event: session\ndata: {self.mcp_server.last_session_id}\n\n"
-                            
                             # Send the main response
                             yield f"event: message\ndata: {json.dumps(response)}\n\n"
-                            
                             # Send completion event
                             yield "event: done\ndata: {}\n\n"
-                        
                     except Exception as e:
                         error_response = self.mcp_server.create_error_response(
                             data.get('id'), -32603, f"Internal error: {str(e)}"
                         )
                         yield f"event: error\ndata: {json.dumps(error_response)}\n\n"
-                
                 response = Response(generate(), mimetype='text/event-stream')
                 response.headers['Cache-Control'] = 'no-cache'
                 response.headers['X-Accel-Buffering'] = 'no'
-                
-                # Add session ID to response headers
-                if session_id:
-                    response.headers['mcp-session-id'] = session_id
-                elif hasattr(self.mcp_server, 'last_session_id') and self.mcp_server.last_session_id:
-                    response.headers['mcp-session-id'] = self.mcp_server.last_session_id
-                
+                # Always add session ID to response headers (generate if needed)
+                response.headers['mcp-session-id'] = session_id
                 return response
-                
             except Exception as e:
                 self.mcp_server.logger.error(f"SSE request error: {e}")
                 return jsonify(self.mcp_server.create_error_response(None, -32603, "Internal error")), 500
-        
-        @self.app.route('/mcp', methods=['GET'])  
+        @self.app.route('/mcp', methods=['GET'])
         def handle_mcp_info():
             """Get MCP server information"""
             return jsonify({
@@ -1177,40 +1020,35 @@ class HTTPTransport:
                 "transports": ["http"],
                 "tools_count": len(self.mcp_server.tools)
             })
-        
         @self.app.route('/health', methods=['GET'])
         def health_check():
             """Health check endpoint"""
             return jsonify({"status": "healthy", "timestamp": datetime.now().isoformat()})
-        
     def run(self, debug: bool = False, production: bool = False):
         """Run the HTTP server
-        
         Args:
             debug: Enable debug mode (uses Flask dev server)
             production: Use production WSGI server (gunicorn) if available
         """
         self.mcp_server.logger.info(f"Starting HTTP transport on port {self.port}")
         self.mcp_server.start_time = time.time()
-        
         if production and not debug:
             # Try to use gunicorn for production
             try:
                 import gunicorn.app.base
-                
+
                 class StandaloneApplication(gunicorn.app.base.BaseApplication):
+
                     def __init__(self, app, options=None):
                         self.options = options or {}
                         self.application = app
                         super().__init__()
-                    
                     def load_config(self):
                         for key, value in self.options.items():
                             self.cfg.set(key.lower(), value)
-                    
                     def load(self):
                         return self.application
-                
+
                 options = {
                     'bind': f'0.0.0.0:{self.port}',
                     'workers': int(os.getenv('GUNICORN_WORKERS', '4')),
@@ -1225,47 +1063,41 @@ class HTTPTransport:
                     'errorlog': '-',
                     'loglevel': os.getenv('LOG_LEVEL', 'info').lower(),
                 }
-                
                 self.mcp_server.logger.info("Starting with Gunicorn production server")
                 StandaloneApplication(self.app, options).run()
                 return
             except ImportError:
                 self.mcp_server.logger.warning("Gunicorn not available, falling back to Flask dev server")
-        
         # Fallback to Flask development server
         self.mcp_server.logger.warning("⚠️  Using Flask development server. For production, install gunicorn: pip install gunicorn")
         self.app.run(host='0.0.0.0', port=self.port, debug=debug, threaded=True)
 
-
 def main():
     """Main entry point for MCP server"""
     parser = argparse.ArgumentParser(description="Synapse MCP Server")
-    parser.add_argument("--http-port", type=int, default=8880, 
-                      help="Port for HTTP transport")
+    parser.add_argument("--http-port", type=int, default=8880,
+                        help="Port for HTTP transport")
     parser.add_argument("--artifacts-dir", type=str, default="artifacts",
-                      help="Directory containing knowledge base artifacts")
+                        help="Directory containing knowledge base artifacts")
     parser.add_argument("--debug", action="store_true",
-                      help="Enable debug mode")
+                        help="Enable debug mode")
     parser.add_argument("--cors", action="store_true", default=True,
-                      help="Enable CORS for HTTP transport")
+                        help="Enable CORS for HTTP transport")
     parser.add_argument("--production", action="store_true",
-                      help="Use production WSGI server (gunicorn)")
-    
+                        help="Use production WSGI server (gunicorn)")
     args = parser.parse_args()
-    
+
     # Initialize MCP server
     try:
         mcp_server = MCPServer(artifacts_dir=args.artifacts_dir)
     except Exception as e:
         print(f"❌ Failed to initialize MCP server: {e}")
         return 1
-    
     # Start HTTP transport
     transport = HTTPTransport(mcp_server, port=args.http_port, cors=args.cors)
     transport.run(debug=args.debug, production=args.production)
-    
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main())  

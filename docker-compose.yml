@@ -1,0 +1,45 @@
+
+services:
+  synapse-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: synapse-mcp-server
+    restart: unless-stopped
+    ports:
+      - "8880:8880"  # HTTP
+    environment:
+      # Optional LiteLLM configuration (not required - MCP server only does retrieval)
+      # - LITELLM_API_KEY=${LITELLM_API_KEY:-}
+      # - LITELLM_BASE_URL=${LITELLM_BASE_URL:-}
+      # # Optional configuration
+      # - LITELLM_MODEL=${LITELLM_MODEL:-gemini/gemini-2.5-pro}
+      # - EMBED_MODEL=${EMBED_MODEL:-BAAI/bge-large-en-v1.5}
+      # - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # Gunicorn configuration
+      - GUNICORN_WORKERS=${GUNICORN_WORKERS:-4}
+      - GUNICORN_TIMEOUT=${GUNICORN_TIMEOUT:-120}
+      # MCP Server configuration
+      - MCP_HTTP_PORT=8880
+    volumes:
+      # Persist artifacts (knowledge bases, embeddings, database)
+      - ./artifacts:/app/artifacts
+      # Persist sessions
+      - ./sessions:/app/sessions
+      # Persist logs
+      - ./mcp_server.log:/app/mcp_server.log
+      # Mount Data folder for web crawlers
+      - ./Data:/app/Data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - synapse-network
+
+networks:
+  synapse-network:
+    driver: bridge
+

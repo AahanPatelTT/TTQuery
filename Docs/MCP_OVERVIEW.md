@@ -56,7 +56,7 @@ Welcome to the comprehensive documentation for the **Synapse Model Context Proto
 1. **Run tests:** `python test_mcp_server.py` ✅ **All tests passing**
 2. **Try demo:** `python mcp_client_example.py --demo`
 3. **Interactive mode:** `python mcp_client_example.py --interactive`
-4. **HTTP testing:** `curl -X POST http://localhost:3000/mcp -H "Content-Type: application/json" -d '{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "ask_question", "arguments": {"question": "What is Synapse?"}}}'`
+4. **HTTP testing:** `curl -X POST http://localhost:8880/mcp -H "Content-Type: application/json" -d '{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "ask_question", "arguments": {"question": "What is Synapse?"}}}'`
 5. **Troubleshooting:** [Troubleshooting Guide](MCP_USAGE_GUIDE.md#troubleshooting)
 
 ## 🛠️ **What is the MCP Server?**
@@ -110,9 +110,9 @@ python mcp_client_example.py --interactive
 ```
 
 **Server Endpoints:**
-- **HTTP**: `POST http://localhost:3000/mcp`
-- **WebSocket**: `ws://localhost:3001`
-- **Health**: `GET http://localhost:3000/health`
+- **HTTP**: `POST http://localhost:8880/mcp`
+- **SSE Streaming**: `POST http://localhost:8880/sse`
+- **Health**: `GET http://localhost:8880/health`
 
 ## 🔧 **MCP Tools Overview**
 
@@ -189,7 +189,7 @@ A: Check [Troubleshooting Guide](MCP_USAGE_GUIDE.md#troubleshooting) for common 
 - **Test Suite**: `python test_mcp_server.py --help`
 - **Example Client**: `python mcp_client_example.py --help`
 - **Server Logs**: `tail -f mcp_server.log`
-- **Health Check**: `curl http://localhost:3000/health`
+- **Health Check**: `curl http://localhost:8880/health`
 
 ## 🎉 **Ready to Go!**
 

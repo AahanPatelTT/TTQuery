@@ -487,7 +487,7 @@ def setup_logging(self):
 1. **Transport Security**
    ```python
    # CORS Configuration
-   CORS(app, origins=["http://localhost:3000"])
+   CORS(app, origins=["http://localhost:8880"])
    
    # Input Validation
    def validate_json_rpc(data):
