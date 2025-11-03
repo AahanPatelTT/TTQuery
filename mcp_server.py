@@ -78,13 +78,21 @@ class MCPServer:
 
     def setup_logging(self):
         """Setup comprehensive logging for MCP operations"""
+        handlers = [logging.StreamHandler()]
+        # Only add file handler if not in Docker/container environment
+        # Docker best practice: log to stdout/stderr instead of files
+        log_file = os.getenv('MCP_LOG_FILE', 'mcp_server.log')
+        if log_file and not os.path.isdir(log_file):
+            try:
+                handlers.append(logging.FileHandler(log_file))
+            except (OSError, IOError):
+                # If file can't be created (e.g., it's a directory in Docker volume mount),
+                # just log to stderr
+                pass
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s [MCP-%(levelname)s] %(name)s: %(message)s',
-            handlers=[
-                logging.StreamHandler(),
-                logging.FileHandler('mcp_server.log')
-            ]
+            handlers=handlers
         )
         self.logger = logging.getLogger('MCPServer')
         self.logger.info("MCP Server initialized")

@@ -6,30 +6,32 @@ import requests
 import sys
 import os
 
-# Start server
-print("🚀 Starting MCP server...")
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-proc = subprocess.Popen(
-    [sys.executable, os.path.join(project_root, "mcp_server.py"), "--http-port", "8880"],
-    stdout=subprocess.PIPE,
-    stderr=subprocess.STDOUT,
-    env=os.environ.copy(),
-    cwd=project_root
-)
+# Only run test code when executed directly, not during pytest import
+if __name__ == "__main__":
+    # Start server
+    print("🚀 Starting MCP server...")
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    proc = subprocess.Popen(
+        [sys.executable, os.path.join(project_root, "mcp_server.py"), "--http-port", "8880"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        env=os.environ.copy(),
+        cwd=project_root
+    )
 
-# Wait for server
-for i in range(10):
-    time.sleep(1)
+    # Wait for server
+    for i in range(10):
+        time.sleep(1)
+        try:
+            r = requests.get("http://localhost:8880/health", timeout=1)
+            if r.status_code == 200:
+                print("✅ Server started")
+                break
+        except:
+            pass
+        print(f"⏳ Waiting... ({i+1}/10)")
+
     try:
-        r = requests.get("http://localhost:8880/health", timeout=1)
-        if r.status_code == 200:
-            print("✅ Server started")
-            break
-    except:
-        pass
-    print(f"⏳ Waiting... ({i+1}/10)")
-
-try:
     # Test 1: /mcp endpoint with session header
     print("\n1️⃣ Testing /mcp with session header...")
     response = requests.post(
@@ -144,10 +146,10 @@ try:
             print(f"   ❌ Error: {result.get('error', {}).get('message', 'Unknown')}")
     else:
         print(f"   ❌ Request failed: {response.status_code}")
-    
-finally:
-    print("\n🛑 Stopping server...")
-    proc.terminate()
-    proc.wait()
-    print("✅ Server stopped")
+
+    finally:
+        print("\n🛑 Stopping server...")
+        proc.terminate()
+        proc.wait()
+        print("✅ Server stopped")
 

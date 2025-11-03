@@ -82,7 +82,13 @@ The following directories should be mounted as volumes:
 
 - `./artifacts` → `/app/artifacts`: Knowledge base embeddings and database
 - `./sessions` → `/app/sessions`: Chat session files
-- `./mcp_server.log` → `/app/mcp_server.log`: Server logs (optional)
+- `./Data` → `/app/Data`: Data folder for web crawlers
+
+**Note:** Logs are sent to stdout/stderr (Docker best practice). View them with:
+```bash
+docker logs synapse-mcp-server
+docker logs -f synapse-mcp-server  # Follow logs
+```
 
 ## 📊 Monitoring
 
