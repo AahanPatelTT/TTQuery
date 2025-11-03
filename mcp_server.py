@@ -272,13 +272,21 @@ class MCPServer:
             ),
             MCPTool(
                 name="initialize_knowledge_base",
-                description="Run knowledge base initialization (fast incremental)",
+                description="Process Data folder and create embeddings (chunking + embedding). Auto-reloads KBs after completion.",
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "folder": {"type": "string", "description": "Specific folder to process (optional)"},
-                        "cleanup": {"type": "boolean", "description": "Run cleanup before processing", "default": False}
+                        "folder": {"type": "string", "description": "Folder name in Data directory to process"},
+                        "cleanup": {"type": "boolean", "description": "Clean up old embeddings", "default": False}
                     }
+                }
+            ),
+            MCPTool(
+                name="reload_knowledge_bases",
+                description="Rescan artifacts directory and reload available knowledge bases (no restart needed)",
+                inputSchema={
+                    "type": "object",
+                    "properties": {}
                 }
             ),
             # Configuration
@@ -400,6 +408,7 @@ class MCPServer:
             'export_session': self.handle_export_session,
             'get_processing_status': self.handle_get_processing_status,
             'initialize_knowledge_base': self.handle_initialize_knowledge_base,
+            'reload_knowledge_bases': self.handle_reload_knowledge_bases,
             'set_verbose_mode': self.handle_set_verbose_mode,
             'get_server_info': self.handle_get_server_info
         }
@@ -842,7 +851,7 @@ class MCPServer:
             })
         return status
     async def handle_initialize_knowledge_base(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle initialize_knowledge_base tool"""
+        """Handle initialize_knowledge_base tool - processes Data folder and creates embeddings"""
         folder = args.get('folder')
         cleanup = args.get('cleanup', False)
         import subprocess
@@ -852,13 +861,46 @@ class MCPServer:
         if cleanup:
             cmd.append("--cleanup")
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        
+        # After processing, reload knowledge bases to detect new ones
+        if result.returncode == 0:
+            try:
+                self.initialize_knowledge_base()
+            except Exception as e:
+                self.logger.warning(f"Failed to reload knowledge bases after initialization: {e}")
+        
         return {
             "command": " ".join(cmd),
             "return_code": result.returncode,
             "stdout": result.stdout,
             "stderr": result.stderr,
-            "status": "success" if result.returncode == 0 else "failed"
+            "status": "success" if result.returncode == 0 else "failed",
+            "available_kbs": list(self.knowledge_bases.keys()) if result.returncode == 0 else []
         }
+    
+    async def handle_reload_knowledge_bases(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle reload_knowledge_bases tool - rescans artifacts directory for new KBs"""
+        try:
+            old_kbs = set(self.knowledge_bases.keys())
+            self.initialize_knowledge_base()
+            new_kbs = set(self.knowledge_bases.keys())
+            added = new_kbs - old_kbs
+            removed = old_kbs - new_kbs
+            
+            return {
+                "status": "success",
+                "available_kbs": list(self.knowledge_bases.keys()),
+                "added": list(added),
+                "removed": list(removed),
+                "current_kb": self.current_kb
+            }
+        except Exception as e:
+            self.logger.error(f"Failed to reload knowledge bases: {e}")
+            return {
+                "status": "error",
+                "error": str(e),
+                "available_kbs": list(self.knowledge_bases.keys())
+            }
     async def handle_set_verbose_mode(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Handle set_verbose_mode tool"""
         verbose = args.get('verbose')
