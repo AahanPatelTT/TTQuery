@@ -110,8 +110,8 @@ python mcp_client_example.py --demo      # Interactive demo
 ### **MCP Endpoints** ✅ **TESTED**
 ```http
 # HTTP Transport (JSON-RPC 2.0)
-POST http://localhost:3000/mcp           # Main MCP endpoint
-GET  http://localhost:3000/health        # Health check
+POST http://localhost:8880/mcp           # Main MCP endpoint
+GET  http://localhost:8880/health        # Health check
 
 # WebSocket Transport
 ws://localhost:3001                      # Real-time MCP communication

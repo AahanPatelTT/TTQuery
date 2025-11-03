@@ -22,18 +22,18 @@ Get up and running with the MCP server in 3 steps:
 
 ```bash
 # 1. Install dependencies (if not already installed)
-pip install websockets flask flask-cors
+pip install flask flask-cors gunicorn
 
 # 2. Start the MCP server
-./launch.sh --mcp
+python mcp_server.py --http-port 8880
 
 # 3. Test with the example client
 python mcp_client_example.py --demo
 ```
 
 The server will start on:
-- **HTTP**: `http://localhost:3000/mcp`
-- **WebSocket**: `ws://localhost:3001`
+- **HTTP**: `http://localhost:8880/mcp`
+- **SSE Streaming**: `http://localhost:8880/sse`
 
 ## 🛠️ **Installation & Setup**
 
@@ -56,13 +56,15 @@ The server will start on:
    pip install -r requirements.txt
    
    # Or install manually
-   pip install websockets flask flask-cors
+   pip install flask flask-cors gunicorn
    ```
 
-4. **Environment Variables**
+4. **Environment Variables** (Optional)
    ```bash
-   export LITELLM_API_KEY=your_api_key_here
-   export LITELLM_BASE_URL=https://litellm-proxy--tenstorrent.workload.tenstorrent.com/
+   # LiteLLM configuration is optional - MCP server only performs retrieval
+   # Set these only if you need LLM generation (external to MCP server)
+   export LITELLM_API_KEY=your_api_key_here  # Optional
+   export LITELLM_BASE_URL=https://your-proxy-url.com/  # Optional
    ```
 
 5. **Knowledge Base Initialization**
@@ -91,12 +93,11 @@ python mcp_server.py --help
 ```
 
 **Available Options:**
-- `--transport {http,websocket,both}` - Transport protocol(s) to use
-- `--http-port PORT` - HTTP server port (default: 3000)
-- `--ws-port PORT` - WebSocket server port (default: 3001)
+- `--http-port PORT` - HTTP server port (default: 8880)
 - `--artifacts-dir DIR` - Directory containing knowledge bases (default: artifacts)
 - `--debug` - Enable debug mode with detailed logging
 - `--cors` - Enable CORS for HTTP transport (default: enabled)
+- `--production` - Use production WSGI server (Gunicorn)
 
 ### **Configuration File** (`mcp_config.json`)
 
@@ -110,13 +111,9 @@ python mcp_server.py --help
   "transports": {
     "http": {
       "enabled": true,
-      "port": 3000,
+      "port": 8880,
       "cors": true,
       "debug": false
-    },
-    "websocket": {
-      "enabled": true,
-      "port": 3001
     }
   },
   "knowledge_base": {
@@ -145,23 +142,18 @@ python mcp_server.py --help
 
 ### **Startup Methods**
 
-**Method 1: Launch Script (Recommended)**
+**Method 1: Direct Python Execution**
 ```bash
-./launch.sh --mcp              # Both HTTP + WebSocket
-./launch.sh --mcp-http         # HTTP only
-./launch.sh --mcp-ws           # WebSocket only
+python mcp_server.py --http-port 8880                    # Default configuration
+python mcp_server.py --http-port 8880 --debug            # Debug mode
+python mcp_server.py --http-port 8880 --production       # Production mode (Gunicorn)
 ```
 
 **Method 2: Dedicated MCP Script**
 ```bash
-./start_mcp_server.sh                           # Default configuration
-./start_mcp_server.sh --transport http          # HTTP only
-./start_mcp_server.sh --debug                   # Debug mode
-```
-
-**Method 3: Direct Python Execution**
-```bash
-python mcp_server.py --transport both --debug
+./start_mcp_server.sh                    # Default configuration (port 8880)
+./start_mcp_server.sh --debug            # Debug mode
+./start_mcp_server.sh --production        # Production mode
 ```
 
 ## 🛠️ **Available MCP Tools**
@@ -614,55 +606,13 @@ session_id = consume_sse_stream(
 )
 ```
 
-### **WebSocket Transport (Deprecated)**
+### **SSE Streaming Endpoint**
 
-WebSocket transport has been removed in favor of HTTP with SSE for streaming use cases.
+For streaming responses, use the `/sse` endpoint which supports Server-Sent Events:
 
-**Endpoint:** `ws://localhost:3001`
+**Endpoint:** `http://localhost:8880/sse`
 
-**Connection Example:**
-```python
-import asyncio
-import json
-import websockets
-
-async def test_websocket():
-    uri = "ws://localhost:3001"
-    
-    async with websockets.connect(uri) as websocket:
-        # Send initialization
-        init_message = {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {"tools": {}},
-                "clientInfo": {"name": "my-client", "version": "1.0.0"}
-            }
-        }
-        
-        await websocket.send(json.dumps(init_message))
-        response = await websocket.recv()
-        print(f"Init response: {response}")
-        
-        # Send tool call
-        tool_message = {
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "tools/call", 
-            "params": {
-                "name": "list_knowledge_bases",
-                "arguments": {}
-            }
-        }
-        
-        await websocket.send(json.dumps(tool_message))
-        response = await websocket.recv()
-        print(f"Tool response: {response}")
-
-asyncio.run(test_websocket())
-```
+The SSE endpoint provides the same JSON-RPC interface as `/mcp` but streams responses as events. See [Session Management](#session-management) for details.
 
 ## 👥 **Client Integration**
 
@@ -677,8 +627,8 @@ python mcp_client_example.py --demo
 # Interactive mode
 python mcp_client_example.py --interactive
 
-# WebSocket transport
-python mcp_client_example.py --transport websocket --port 3001 --demo
+# SSE streaming mode
+python mcp_client_example.py --sse --port 8880
 ```
 
 ### **Python Client Example**
@@ -690,7 +640,7 @@ import requests
 from typing import Dict, Any
 
 class SynapseMCPClient:
-    def __init__(self, host: str = "localhost", port: int = 3000):
+    def __init__(self, host: str = "localhost", port: int = 8880):
         self.base_url = f"http://{host}:{port}/mcp"
         self.message_id = 0
     
@@ -812,7 +762,7 @@ class SynapseMCPClient {
                     this.pendingRequests.delete(id);
                     reject(new Error('Request timeout'));
                 }
-            }, 30000);
+            }, 88800);
         });
     }
     
@@ -1170,7 +1120,7 @@ def extract_keywords(text):
 **1. Connection Refused**
 ```bash
 # Check if server is running
-curl http://localhost:3000/health
+curl http://localhost:8880/health
 
 # If not running, start server
 ./launch.sh --mcp
@@ -1300,14 +1250,14 @@ ENV LITELLM_API_KEY=""
 ENV LITELLM_BASE_URL=""
 
 # Expose ports
-EXPOSE 3000 3001
+EXPOSE 8880 3001
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:3000/health || exit 1
+    CMD curl -f http://localhost:8880/health || exit 1
 
 # Start server
-CMD ["python", "mcp_server.py", "--transport", "both", "--http-port", "3000", "--ws-port", "3001"]
+CMD ["python", "mcp_server.py", "--transport", "both", "--http-port", "8880", "--ws-port", "3001"]
 ```
 
 **Build and Run:**
@@ -1317,7 +1267,7 @@ docker build -t synapse-mcp-server .
 
 # Run container
 docker run -d \
-    -p 3000:3000 \
+    -p 8880:8880 \
     -p 3001:3001 \
     -e LITELLM_API_KEY=your_key \
     -e LITELLM_BASE_URL=your_url \
@@ -1348,7 +1298,7 @@ spec:
       - name: mcp-server
         image: synapse-mcp-server:latest
         ports:
-        - containerPort: 3000
+        - containerPort: 8880
         - containerPort: 3001
         env:
         - name: LITELLM_API_KEY
@@ -1366,13 +1316,13 @@ spec:
         livenessProbe:
           httpGet:
             path: /health
-            port: 3000
+            port: 8880
           initialDelaySeconds: 30
           periodSeconds: 10
         readinessProbe:
           httpGet:
             path: /health
-            port: 3000
+            port: 8880
           initialDelaySeconds: 5
           periodSeconds: 5
       volumes:
@@ -1393,8 +1343,8 @@ spec:
     app: synapse-mcp
   ports:
   - name: http
-    port: 3000
-    targetPort: 3000
+    port: 8880
+    targetPort: 8880
   - name: websocket
     port: 3001
     targetPort: 3001
@@ -1408,7 +1358,7 @@ spec:
 # Add to your Prometheus configuration
 - job_name: 'synapse-mcp'
   static_configs:
-  - targets: ['localhost:3000']
+  - targets: ['localhost:8880']
   metrics_path: '/metrics'
   scrape_interval: 15s
 ```
@@ -1418,7 +1368,7 @@ spec:
 #!/bin/bash
 # health_check.sh
 
-HEALTH_URL="http://localhost:3000/health"
+HEALTH_URL="http://localhost:8880/health"
 MAX_RETRIES=3
 RETRY_COUNT=0
 

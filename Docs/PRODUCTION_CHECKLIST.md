@@ -68,9 +68,9 @@ POST /api/switch-kb             # Change knowledge base
 ### **MCP Server API** ⭐ **NEW**
 ```http
 # HTTP Transport (JSON-RPC 2.0)
-POST http://localhost:3000/mcp   # MCP JSON-RPC endpoint
-GET  http://localhost:3000/mcp   # Server information
-GET  http://localhost:3000/health # Health check
+POST http://localhost:8880/mcp   # MCP JSON-RPC endpoint
+GET  http://localhost:8880/mcp   # Server information
+GET  http://localhost:8880/health # Health check
 
 # WebSocket Transport
 ws://localhost:3001              # MCP WebSocket endpoint
