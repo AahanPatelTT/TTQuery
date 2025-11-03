@@ -160,7 +160,8 @@ python chat.py --test_gui
 python mcp_server.py --transport both --http-port 3000 --ws-port 3001
 
 # Test the MCP server
-python test_mcp_server.py      # Comprehensive test suite
+python tests/test_mcp_server.py      # Comprehensive test suite
+python tests/test_fastmcp.py         # FastMCP/SSE tests
 python mcp_client_example.py --demo  # Interactive demo
 
 # Quick HTTP test

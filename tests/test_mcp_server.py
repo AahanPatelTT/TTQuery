@@ -7,7 +7,7 @@ A complete test suite that:
 2. Tests all 14 tools with proper parameters
 3. Validates error handling and edge cases
 4. Performs performance testing
-5. Tests both HTTP and WebSocket transports
+5. Tests HTTP transport
 
 Usage:
     python test_mcp_server.py                  # Run all tests
@@ -29,8 +29,7 @@ from typing import Dict, Any, List, Optional
 
 # Test configuration
 SERVER_HOST = "localhost"
-HTTP_PORT = 3000
-WS_PORT = 3001
+HTTP_PORT = 8880
 TEST_TIMEOUT = 15
 MAX_RETRIES = 3
 
@@ -40,30 +39,75 @@ class MCPTester:
     def __init__(self, verbose: bool = False):
         self.verbose = verbose
         self.base_url = f"http://{SERVER_HOST}:{HTTP_PORT}"
-        self.ws_url = f"ws://{SERVER_HOST}:{WS_PORT}"
         self.process = None
         self.test_results = []
         
+        # Load environment variables from .env file if available
+        self._load_env()
+    
+    def _load_env(self):
+        """Load environment variables from .env file"""
+        env_file = os.path.join(os.path.dirname(__file__), '..', '.env')
+        if os.path.exists(env_file):
+            try:
+                with open(env_file) as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith('#') and '=' in line:
+                            key, value = line.split('=', 1)
+                            os.environ[key.strip()] = value.strip()
+            except Exception as e:
+                if self.verbose:
+                    print(f"⚠️  Could not load .env file: {e}")
+        
+        # Set mock values if not set (for testing without real API)
+        if not os.getenv('LITELLM_API_KEY'):
+            os.environ['LITELLM_API_KEY'] = 'test_key'
+        if not os.getenv('LITELLM_BASE_URL'):
+            os.environ['LITELLM_BASE_URL'] = 'http://localhost:4000'
+    
     def start_server(self) -> bool:
         """Start MCP server"""
         print("🚀 Starting MCP server...")
         try:
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             self.process = subprocess.Popen(
-                [sys.executable, "mcp_server.py", "--transport", "both", "--http-port", "3000", "--ws-port", "3001"],
+                [sys.executable, os.path.join(project_root, "mcp_server.py"), "--http-port", str(HTTP_PORT)],
+                cwd=project_root,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
+                stderr=subprocess.STDOUT,  # Combine stderr with stdout
+                text=True,
+                env=os.environ.copy()  # Pass environment variables
             )
             
-            # Wait for server to be ready
-            for i in range(5):
+            # Wait for server to be ready (longer timeout for knowledge base loading)
+            for i in range(15):  # Increased to 15 seconds
                 time.sleep(1)
                 if self._check_server_ready():
                     print("✅ MCP server started")
                     return True
-                print(f"⏳ Waiting... ({i+1}/5)")
+                print(f"⏳ Waiting... ({i+1}/15)")
+                
+                # Check if process died
+                if self.process.poll() is not None:
+                    # Process ended, read output to see what happened
+                    stdout, _ = self.process.communicate()
+                    error_msg = stdout[-500:] if stdout else "No output"
+                    print(f"❌ Server process exited early. Output: {error_msg}")
+                    return False
             
-            print("❌ Failed to start server")
+            print("❌ Failed to start server within timeout")
+            if self.verbose:
+                # Try to read some output
+                try:
+                    import select
+                    import sys as _sys
+                    # Non-blocking read attempt
+                    if select.select([self.process.stdout], [], [], 0)[0]:
+                        output = self.process.stdout.read(1000)
+                        print(f"Server output: {output}")
+                except:
+                    pass
             return False
         except Exception as e:
             print(f"❌ Error starting server: {e}")
@@ -319,65 +363,6 @@ class MCPTester:
             self.log(f"Performance test failed: {e}", "ERROR")
             return False
     
-    async def test_websocket_transport(self) -> bool:
-        """Test WebSocket transport"""
-        self.log("Testing WebSocket transport...")
-        
-        try:
-            import websockets
-            import asyncio
-            
-            # Add a small delay to ensure server is ready
-            await asyncio.sleep(1)
-            
-            async with websockets.connect(self.ws_url, ping_interval=None, ping_timeout=None) as websocket:
-                # Send initialize message
-                init_message = {
-                    "jsonrpc": "2.0",
-                    "id": 1,
-                    "method": "initialize",
-                    "params": {
-                        "protocolVersion": "2024-11-05",
-                        "capabilities": {"tools": {}},
-                        "clientInfo": {"name": "test-client", "version": "1.0.0"}
-                    }
-                }
-                
-                await websocket.send(json.dumps(init_message))
-                response = await asyncio.wait_for(websocket.recv(), timeout=5.0)
-                data = json.loads(response)
-                
-                if "error" in data:
-                    self.log(f"WebSocket initialize failed: {data['error']}", "ERROR")
-                    return False
-                
-                # Send tools/list message
-                list_message = {
-                    "jsonrpc": "2.0",
-                    "id": 2,
-                    "method": "tools/list",
-                    "params": {}
-                }
-                
-                await websocket.send(json.dumps(list_message))
-                response = await asyncio.wait_for(websocket.recv(), timeout=5.0)
-                data = json.loads(response)
-                
-                if "error" in data:
-                    self.log(f"WebSocket tools/list failed: {data['error']}", "ERROR")
-                    return False
-                
-                tools = data.get("result", {}).get("tools", [])
-                self.log(f"✅ WebSocket transport working: {len(tools)} tools available")
-                
-                return True
-                
-        except asyncio.TimeoutError:
-            self.log("WebSocket test failed: Connection timeout", "ERROR")
-            return False
-        except Exception as e:
-            self.log(f"WebSocket test failed: {e}", "ERROR")
-            return False
     
     async def run_comprehensive_tests(self) -> bool:
         """Run comprehensive test suite"""
@@ -398,7 +383,6 @@ class MCPTester:
                 "advanced": [
                     ("Error Handling", self.test_error_handling),
                     ("Performance", self.test_performance),
-                    ("WebSocket Transport", self.test_websocket_transport),
                 ]
             }
             
@@ -497,7 +481,7 @@ async def main():
                        help="Verbose output with detailed logging")
     parser.add_argument("--quick", "-q", action="store_true",
                        help="Run essential tests only")
-    parser.add_argument("--test", choices=["tools", "performance", "errors", "websocket"],
+    parser.add_argument("--test", choices=["tools", "performance", "errors"],
                        help="Run specific test category")
     
     args = parser.parse_args()
@@ -520,13 +504,6 @@ async def main():
                 sys.exit(1)
             try:
                 success = await tester.test_error_handling()
-            finally:
-                tester.stop_server()
-        elif args.test == "websocket":
-            if not tester.start_server():
-                sys.exit(1)
-            try:
-                success = await tester.test_websocket_transport()
             finally:
                 tester.stop_server()
     elif args.quick:

@@ -444,11 +444,11 @@ Run knowledge base initialization with options.
 
 ### **HTTP Transport (JSON-RPC 2.0)**
 
-**Endpoint:** `POST http://localhost:3000/mcp`
+**Endpoint:** `POST http://localhost:8880/mcp`
 
 **Request Example:**
 ```bash
-curl -X POST http://localhost:3000/mcp \
+curl -X POST http://localhost:8880/mcp \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
@@ -462,6 +462,30 @@ curl -X POST http://localhost:3000/mcp \
       }
     }
   }'
+```
+
+**FastMCP-Style Session Headers:**
+```bash
+curl -X POST http://localhost:8880/mcp \
+  -H "Content-Type: application/json" \
+  -H "mcp-session-id: my-session-123" \
+  -i \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "ask_question",
+      "arguments": {
+        "question": "What is Synapse?"
+      }
+    }
+  }'
+
+# Response includes session ID in headers:
+# HTTP/1.1 200 OK
+# mcp-session-id: my-session-123
+# ...
 ```
 
 **Batch Requests:**
@@ -487,7 +511,7 @@ curl -X POST http://localhost:3000/mcp \
 
 **Health Check:**
 ```bash
-curl http://localhost:3000/health
+curl http://localhost:8880/health
 
 # Response:
 {
@@ -496,7 +520,103 @@ curl http://localhost:3000/health
 }
 ```
 
-### **WebSocket Transport**
+### **Server-Sent Events (SSE) Transport**
+
+**Endpoint:** `POST http://localhost:8880/sse`
+
+The SSE endpoint provides streaming responses via `text/event-stream` format, ideal for real-time updates and FastMCP-style communication.
+
+**SSE Request Example:**
+```bash
+curl -X POST http://localhost:8880/sse \
+  -H "Content-Type: application/json" \
+  -H "mcp-session-id: my-session" \
+  -N \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "ask_question",
+      "arguments": {
+        "question": "What is Ascalon?"
+      }
+    }
+  }'
+
+# Response stream:
+# HTTP/1.1 200 OK
+# Content-Type: text/event-stream
+# mcp-session-id: my-session
+#
+# event: session
+# data: my-session
+#
+# event: message
+# data: {"jsonrpc":"2.0","id":1,"result":{...}}
+#
+# event: done
+# data: {}
+```
+
+**SSE Event Types:**
+
+1. **`session`** - Emitted first with the session ID
+2. **`message`** - Contains the JSON-RPC response
+3. **done`** - Signals completion of the stream
+4. **`error`** - Emitted on errors
+
+**Python SSE Client:**
+```python
+import requests
+
+def consume_sse_stream(url, message, session_id=None):
+    """Consume SSE stream from MCP server"""
+    headers = {"Content-Type": "application/json"}
+    if session_id:
+        headers["mcp-session-id"] = session_id
+    
+    response = requests.post(url, json=message, headers=headers, stream=True)
+    
+    for line in response.iter_lines(decode_unicode=True):
+        if not line:
+            continue
+        
+        if line.startswith('event:'):
+            event_type = line.split(':', 1)[1].strip()
+            print(f"Event: {event_type}")
+        
+        elif line.startswith('data:'):
+            data = line.split(':', 1)[1].strip()
+            print(f"Data: {data}")
+            
+            if event_type == 'done':
+                break
+    
+    # Session ID is returned in response headers
+    return response.headers.get('mcp-session-id')
+
+# Usage
+message = {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+        "name": "ask_question",
+        "arguments": {"question": "What is Ascalon?"}
+    }
+}
+
+session_id = consume_sse_stream(
+    "http://localhost:8880/sse",
+    message,
+    session_id="research-session"
+)
+```
+
+### **WebSocket Transport (Deprecated)**
+
+WebSocket transport has been removed in favor of HTTP with SSE for streaming use cases.
 
 **Endpoint:** `ws://localhost:3001`
 

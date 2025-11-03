@@ -57,5 +57,6 @@ markdownify>=0.13.1
 # MCP Server dependencies  
 websockets>=11.0.0
 flask-cors>=4.0.0
+gunicorn>=21.2.0
 
  

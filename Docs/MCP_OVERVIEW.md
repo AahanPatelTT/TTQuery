@@ -8,7 +8,7 @@ Welcome to the comprehensive documentation for the **Synapse Model Context Proto
 - **[MCP Usage Guide](MCP_USAGE_GUIDE.md)** - Complete user guide with examples
   - Quick start and setup
   - All 14 MCP tools explained
-  - Transport protocols (HTTP/WebSocket)
+  - HTTP transport with FastMCP support (SSE)
   - Client integration examples
   - Session management
   - Troubleshooting
@@ -18,16 +18,11 @@ Welcome to the comprehensive documentation for the **Synapse Model Context Proto
   - System architecture overview
   - Core components and design
   - MCP protocol implementation
-  - Transport layer details
+  - HTTP transport with SSE streaming
+  - FastMCP session management
   - Performance considerations
   - Extension patterns
 
-### **📋 Quick Reference**
-- **[MCP Server Guide](MCP_SERVER_GUIDE.md)** - Quick reference and examples
-  - Basic setup instructions
-  - Configuration options
-  - Common usage patterns
-  - Integration examples
 
 ## 🎯 **Choose Your Path**
 

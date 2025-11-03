@@ -3,12 +3,11 @@
 Synapse MCP (Model Context Protocol) Server
 
 This module implements an MCP server that exposes all Synapse CLI functionality
-via HTTP and WebSocket transports. It provides tools for knowledge base queries,
+via HTTP transport. It provides tools for knowledge base queries,
 session management, document processing, and more.
 
 Features:
 - HTTP transport with JSON-RPC 2.0 protocol
-- WebSocket transport for real-time communication
 - All CLI commands exposed as MCP tools
 - Comprehensive logging and error handling
 - Session persistence and management
@@ -16,9 +15,8 @@ Features:
 - Document processing status monitoring
 
 Usage:
-    python mcp_server.py --transport http --port 3000
-    python mcp_server.py --transport websocket --port 3001
-    python mcp_server.py --transport both --http-port 3000 --ws-port 3001
+    python mcp_server.py --http-port 3000
+    python mcp_server.py --transport http --http-port 3000
 """
 
 import argparse
@@ -39,52 +37,23 @@ import traceback
 try:
     from flask import Flask, request, jsonify, Response
     from flask_cors import CORS
-    import threading
     FLASK_AVAILABLE = True
 except ImportError:
     FLASK_AVAILABLE = False
 
-# WebSocket server imports
-try:
-    import websockets
-    import websockets.server
-    WEBSOCKETS_AVAILABLE = True
-except ImportError:
-    WEBSOCKETS_AVAILABLE = False
-
 # Import Synapse components
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from chat import ChatSession, load_default_config, save_default_config
+from chat import ChatSession
 from pipeline.query import (
     load_corpus, build_indices, load_query_encoder, encode_query,
-    dense_search, sparse_search, rrf, per_doc_cap, rerank, mmr_select,
-    format_citations, build_prompt, call_gemini_via_litellm,
-    list_available_knowledge_bases, answer
+    dense_search, sparse_search, rrf, per_doc_cap, rerank,
+    list_available_knowledge_bases
 )
 from pipeline.database import SynapseDB
 
 
 # MCP Protocol Types and Classes
-@dataclass
-class MCPMessage:
-    """Base MCP message structure"""
-    jsonrpc: str = "2.0"
-    id: Optional[Union[str, int]] = None
-    method: Optional[str] = None
-    params: Optional[Dict[str, Any]] = None
-    result: Optional[Any] = None
-    error: Optional[Dict[str, Any]] = None
-
-
-@dataclass
-class MCPError:
-    """MCP error structure"""
-    code: int
-    message: str
-    data: Optional[Any] = None
-
-
 @dataclass  
 class MCPTool:
     """MCP tool definition"""
@@ -107,6 +76,7 @@ class MCPServer:
         self.knowledge_bases = {}
         self.current_kb = None
         self.verbose_mode = False
+        self.last_session_id = None  # For FastMCP-style session tracking
         
         # Setup logging
         self.setup_logging()
@@ -341,9 +311,18 @@ class MCPServer:
             )
         ]
     
-    async def handle_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle incoming MCP message"""
+    async def handle_message(self, message: Dict[str, Any], session_id: Optional[str] = None) -> Dict[str, Any]:
+        """Handle incoming MCP message
+        
+        Args:
+            message: The MCP JSON-RPC message
+            session_id: Optional session ID from FastMCP-style headers
+        """
         try:
+            # Store session ID for use in responses
+            if session_id:
+                self.last_session_id = session_id
+            
             # Validate message structure
             if not isinstance(message, dict) or message.get('jsonrpc') != '2.0':
                 return self.create_error_response(None, -32600, "Invalid Request")
@@ -360,7 +339,7 @@ class MCPServer:
             elif method == 'tools/list':
                 return self.handle_list_tools(msg_id)
             elif method == 'tools/call':
-                return await self.handle_tool_call(msg_id, params)
+                return await self.handle_tool_call(msg_id, params, session_id)
             elif method == 'notifications/initialized':
                 return None  # No response needed for notifications
             else:
@@ -411,13 +390,23 @@ class MCPServer:
             "tools": [asdict(tool) for tool in self.tools]
         })
     
-    async def handle_tool_call(self, msg_id: Union[str, int], params: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle tools/call request"""
+    async def handle_tool_call(self, msg_id: Union[str, int], params: Dict[str, Any], session_id: Optional[str] = None) -> Dict[str, Any]:
+        """Handle tools/call request
+        
+        Args:
+            msg_id: Message ID
+            params: Tool parameters
+            session_id: Optional session ID from FastMCP-style headers
+        """
         tool_name = params.get('name')
         arguments = params.get('arguments', {})
         
         if not tool_name:
             return self.create_error_response(msg_id, -32602, "Missing tool name")
+        
+        # Inject session_id into arguments for ask_question if provided via header
+        if tool_name == 'ask_question' and session_id and 'session_id' not in arguments:
+            arguments['session_id'] = session_id
         
         # Route to appropriate tool handler
         tool_handlers = {
@@ -1010,7 +999,7 @@ class MCPServer:
             "active_sessions": len(self.sessions),
             "verbose_mode": self.verbose_mode,
             "artifacts_dir": self.artifacts_dir,
-            "transports": ["http", "websocket"],
+            "transports": ["http"],
             "uptime": time.time() - getattr(self, 'start_time', time.time())
         }
 
@@ -1038,29 +1027,144 @@ class HTTPTransport:
         
         @self.app.route('/mcp', methods=['POST'])
         def handle_mcp_request():
-            """Handle MCP JSON-RPC requests"""
+            """Handle MCP JSON-RPC requests - supports both JSON and SSE formats"""
             try:
                 data = request.get_json()
                 if not data:
                     return jsonify(self.mcp_server.create_error_response(None, -32700, "Parse error")), 400
                 
+                # Get session ID from headers (FastMCP-style)
+                session_id = request.headers.get('mcp-session-id')
+                
+                # Check if client wants SSE format via Accept header
+                accept_header = request.headers.get('Accept', '')
+                wants_sse = 'text/event-stream' in accept_header
+                
+                # If SSE requested, use SSE format
+                if wants_sse:
+                    def generate():
+                        """Generator for SSE stream"""
+                        try:
+                            # Handle batch requests
+                            if isinstance(data, list):
+                                for message in data:
+                                    response = asyncio.run(self.mcp_server.handle_message(message, session_id))
+                                    if response:
+                                        # Send session ID as first event if available
+                                        if session_id:
+                                            yield f"event: session\ndata: {session_id}\n\n"
+                                        elif hasattr(self.mcp_server, 'last_session_id') and self.mcp_server.last_session_id:
+                                            yield f"event: session\ndata: {self.mcp_server.last_session_id}\n\n"
+                                        
+                                        yield f"event: message\ndata: {json.dumps(response)}\n\n"
+                                        yield "event: done\ndata: {}\n\n"
+                            else:
+                                response = asyncio.run(self.mcp_server.handle_message(data, session_id))
+                                if response:
+                                    # Send session ID as first event if available
+                                    if session_id:
+                                        yield f"event: session\ndata: {session_id}\n\n"
+                                    elif hasattr(self.mcp_server, 'last_session_id') and self.mcp_server.last_session_id:
+                                        yield f"event: session\ndata: {self.mcp_server.last_session_id}\n\n"
+                                    
+                                    yield f"event: message\ndata: {json.dumps(response)}\n\n"
+                                    yield "event: done\ndata: {}\n\n"
+                        except Exception as e:
+                            error_response = self.mcp_server.create_error_response(
+                                data.get('id') if isinstance(data, dict) else None, -32603, f"Internal error: {str(e)}"
+                            )
+                            yield f"event: error\ndata: {json.dumps(error_response)}\n\n"
+                    
+                    response = Response(generate(), mimetype='text/event-stream')
+                    response.headers['Cache-Control'] = 'no-cache'
+                    response.headers['X-Accel-Buffering'] = 'no'
+                    
+                    # Add session ID to response headers
+                    if session_id:
+                        response.headers['mcp-session-id'] = session_id
+                    elif hasattr(self.mcp_server, 'last_session_id') and self.mcp_server.last_session_id:
+                        response.headers['mcp-session-id'] = self.mcp_server.last_session_id
+                    
+                    return response
+                
+                # Otherwise, return JSON (default behavior)
                 # Handle batch requests
                 if isinstance(data, list):
                     responses = []
                     for message in data:
-                        response = asyncio.run(self.mcp_server.handle_message(message))
+                        response = asyncio.run(self.mcp_server.handle_message(message, session_id))
                         if response:
                             responses.append(response)
-                    return jsonify(responses)
+                    result = jsonify(responses)
                 else:
-                    response = asyncio.run(self.mcp_server.handle_message(data))
+                    response = asyncio.run(self.mcp_server.handle_message(data, session_id))
                     if response:
-                        return jsonify(response)
+                        result = jsonify(response)
                     else:
                         return '', 204  # No Content for notifications
+                
+                # Add session ID to response headers if we created/used one
+                if session_id:
+                    result.headers['mcp-session-id'] = session_id
+                elif hasattr(self.mcp_server, 'last_session_id') and self.mcp_server.last_session_id:
+                    result.headers['mcp-session-id'] = self.mcp_server.last_session_id
+                
+                return result
                         
             except Exception as e:
                 self.mcp_server.logger.error(f"HTTP request error: {e}")
+                return jsonify(self.mcp_server.create_error_response(None, -32603, "Internal error")), 500
+        
+        @self.app.route('/sse', methods=['POST'])
+        def handle_sse_request():
+            """Handle MCP requests with Server-Sent Events (SSE) response"""
+            try:
+                data = request.get_json()
+                if not data:
+                    return jsonify(self.mcp_server.create_error_response(None, -32700, "Parse error")), 400
+                
+                # Get session ID from headers (FastMCP-style)
+                session_id = request.headers.get('mcp-session-id')
+                
+                def generate():
+                    """Generator for SSE stream"""
+                    try:
+                        # Process the request
+                        response = asyncio.run(self.mcp_server.handle_message(data, session_id))
+                        
+                        if response:
+                            # Send session ID as first event if available
+                            if session_id:
+                                yield f"event: session\ndata: {session_id}\n\n"
+                            elif hasattr(self.mcp_server, 'last_session_id') and self.mcp_server.last_session_id:
+                                yield f"event: session\ndata: {self.mcp_server.last_session_id}\n\n"
+                            
+                            # Send the main response
+                            yield f"event: message\ndata: {json.dumps(response)}\n\n"
+                            
+                            # Send completion event
+                            yield "event: done\ndata: {}\n\n"
+                        
+                    except Exception as e:
+                        error_response = self.mcp_server.create_error_response(
+                            data.get('id'), -32603, f"Internal error: {str(e)}"
+                        )
+                        yield f"event: error\ndata: {json.dumps(error_response)}\n\n"
+                
+                response = Response(generate(), mimetype='text/event-stream')
+                response.headers['Cache-Control'] = 'no-cache'
+                response.headers['X-Accel-Buffering'] = 'no'
+                
+                # Add session ID to response headers
+                if session_id:
+                    response.headers['mcp-session-id'] = session_id
+                elif hasattr(self.mcp_server, 'last_session_id') and self.mcp_server.last_session_id:
+                    response.headers['mcp-session-id'] = self.mcp_server.last_session_id
+                
+                return response
+                
+            except Exception as e:
+                self.mcp_server.logger.error(f"SSE request error: {e}")
                 return jsonify(self.mcp_server.create_error_response(None, -32603, "Internal error")), 500
         
         @self.app.route('/mcp', methods=['GET'])  
@@ -1070,7 +1174,7 @@ class HTTPTransport:
                 "name": "Synapse MCP Server",
                 "version": "1.0.0",
                 "protocol": "Model Context Protocol",
-                "transports": ["http", "websocket"],
+                "transports": ["http"],
                 "tools_count": len(self.mcp_server.tools)
             })
         
@@ -1079,88 +1183,75 @@ class HTTPTransport:
             """Health check endpoint"""
             return jsonify({"status": "healthy", "timestamp": datetime.now().isoformat()})
         
-    def run(self, debug: bool = False):
-        """Run the HTTP server"""
+    def run(self, debug: bool = False, production: bool = False):
+        """Run the HTTP server
+        
+        Args:
+            debug: Enable debug mode (uses Flask dev server)
+            production: Use production WSGI server (gunicorn) if available
+        """
         self.mcp_server.logger.info(f"Starting HTTP transport on port {self.port}")
         self.mcp_server.start_time = time.time()
+        
+        if production and not debug:
+            # Try to use gunicorn for production
+            try:
+                import gunicorn.app.base
+                
+                class StandaloneApplication(gunicorn.app.base.BaseApplication):
+                    def __init__(self, app, options=None):
+                        self.options = options or {}
+                        self.application = app
+                        super().__init__()
+                    
+                    def load_config(self):
+                        for key, value in self.options.items():
+                            self.cfg.set(key.lower(), value)
+                    
+                    def load(self):
+                        return self.application
+                
+                options = {
+                    'bind': f'0.0.0.0:{self.port}',
+                    'workers': int(os.getenv('GUNICORN_WORKERS', '4')),
+                    'worker_class': 'sync',
+                    'worker_connections': 1000,
+                    'timeout': int(os.getenv('GUNICORN_TIMEOUT', '120')),
+                    'keepalive': 5,
+                    'max_requests': 1000,
+                    'max_requests_jitter': 100,
+                    'preload_app': True,
+                    'accesslog': '-',
+                    'errorlog': '-',
+                    'loglevel': os.getenv('LOG_LEVEL', 'info').lower(),
+                }
+                
+                self.mcp_server.logger.info("Starting with Gunicorn production server")
+                StandaloneApplication(self.app, options).run()
+                return
+            except ImportError:
+                self.mcp_server.logger.warning("Gunicorn not available, falling back to Flask dev server")
+        
+        # Fallback to Flask development server
+        self.mcp_server.logger.warning("⚠️  Using Flask development server. For production, install gunicorn: pip install gunicorn")
         self.app.run(host='0.0.0.0', port=self.port, debug=debug, threaded=True)
-
-
-class WebSocketTransport:
-    """WebSocket transport for MCP server"""
-    
-    def __init__(self, mcp_server: MCPServer, port: int = 3001):
-        if not WEBSOCKETS_AVAILABLE:
-            raise ImportError("websockets is required for WebSocket transport. Install with: pip install websockets")
-        
-        self.mcp_server = mcp_server
-        self.port = port
-        self.clients = set()
-        
-    async def handle_client(self, websocket, path):
-        """Handle WebSocket client connection"""
-        self.clients.add(websocket)
-        client_addr = websocket.remote_address
-        self.mcp_server.logger.info(f"WebSocket client connected: {client_addr}")
-        
-        try:
-            async for message in websocket:
-                try:
-                    data = json.loads(message)
-                    response = await self.mcp_server.handle_message(data)
-                    
-                    if response:
-                        await websocket.send(json.dumps(response))
-                        
-                except json.JSONDecodeError:
-                    error_response = self.mcp_server.create_error_response(None, -32700, "Parse error")
-                    await websocket.send(json.dumps(error_response))
-                except Exception as e:
-                    self.mcp_server.logger.error(f"WebSocket message error: {e}")
-                    error_response = self.mcp_server.create_error_response(None, -32603, "Internal error")
-                    await websocket.send(json.dumps(error_response))
-                    
-        except websockets.exceptions.ConnectionClosed:
-            self.mcp_server.logger.info(f"WebSocket client disconnected: {client_addr}")
-        finally:
-            self.clients.remove(websocket)
-    
-    async def run(self):
-        """Run the WebSocket server"""
-        self.mcp_server.logger.info(f"Starting WebSocket transport on port {self.port}")
-        self.mcp_server.start_time = time.time()
-        
-        async with websockets.serve(self.handle_client, "0.0.0.0", self.port):
-            self.mcp_server.logger.info(f"WebSocket server running on ws://0.0.0.0:{self.port}")
-            # Keep the server running
-            await asyncio.Future()  # run forever
 
 
 def main():
     """Main entry point for MCP server"""
     parser = argparse.ArgumentParser(description="Synapse MCP Server")
-    parser.add_argument("--transport", choices=["http", "websocket", "both"], default="http", 
-                      help="Transport protocol to use")
-    parser.add_argument("--http-port", type=int, default=3000, 
+    parser.add_argument("--http-port", type=int, default=8880, 
                       help="Port for HTTP transport")
-    parser.add_argument("--ws-port", type=int, default=3001,
-                      help="Port for WebSocket transport")
     parser.add_argument("--artifacts-dir", type=str, default="artifacts",
                       help="Directory containing knowledge base artifacts")
     parser.add_argument("--debug", action="store_true",
                       help="Enable debug mode")
     parser.add_argument("--cors", action="store_true", default=True,
                       help="Enable CORS for HTTP transport")
+    parser.add_argument("--production", action="store_true",
+                      help="Use production WSGI server (gunicorn)")
     
     args = parser.parse_args()
-    
-    # Check environment
-    api_key = os.getenv("LITELLM_API_KEY")
-    base_url = os.getenv("LITELLM_BASE_URL")
-    if not api_key or not base_url:
-        print("❌ Environment variables not set!")
-        print("Set LITELLM_API_KEY and LITELLM_BASE_URL")
-        return 1
     
     # Initialize MCP server
     try:
@@ -1169,31 +1260,9 @@ def main():
         print(f"❌ Failed to initialize MCP server: {e}")
         return 1
     
-    # Start transport(s)
-    if args.transport == "http":
-        transport = HTTPTransport(mcp_server, port=args.http_port, cors=args.cors)
-        transport.run(debug=args.debug)
-        
-    elif args.transport == "websocket":
-        transport = WebSocketTransport(mcp_server, port=args.ws_port)
-        asyncio.run(transport.run())
-        
-    elif args.transport == "both":
-        # Run both transports
-        def run_http():
-            transport = HTTPTransport(mcp_server, port=args.http_port, cors=args.cors)
-            transport.run(debug=args.debug)
-        
-        async def run_websocket():
-            transport = WebSocketTransport(mcp_server, port=args.ws_port)
-            await transport.run()
-        
-        # Start HTTP in a thread
-        http_thread = threading.Thread(target=run_http, daemon=True)
-        http_thread.start()
-        
-        # Run WebSocket in main thread  
-        asyncio.run(run_websocket())
+    # Start HTTP transport
+    transport = HTTPTransport(mcp_server, port=args.http_port, cors=args.cors)
+    transport.run(debug=args.debug, production=args.production)
     
     return 0
 

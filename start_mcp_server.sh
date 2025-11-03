@@ -53,37 +53,22 @@ if [ -f ".env" ]; then
     set +a
     print_success "Environment variables loaded"
 else
-    print_warning "No .env file found. Make sure LITELLM_API_KEY and LITELLM_BASE_URL are set."
+    print_warning "No .env file found. (LiteLLM config is optional - not required for MCP server)"
 fi
 
-# Check required environment variables
-if [ -z "$LITELLM_API_KEY" ] || [ -z "$LITELLM_BASE_URL" ]; then
-    print_error "Required environment variables not set:"
-    print_error "  LITELLM_API_KEY: ${LITELLM_API_KEY:+SET}"
-    print_error "  LITELLM_BASE_URL: ${LITELLM_BASE_URL:+SET}"
-    print_error "Please set these variables and try again."
-    exit 1
-fi
+# Note: LiteLLM configuration is not required for MCP server
+# The server only performs retrieval and returns context for external LLM generation
 
 # Parse command line arguments
-TRANSPORT="both"
-HTTP_PORT=3000
-WS_PORT=3001
+HTTP_PORT=8880
 DEBUG=false
 CORS=true
+PRODUCTION=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --transport)
-            TRANSPORT="$2"
-            shift 2
-            ;;
         --http-port)
             HTTP_PORT="$2"
-            shift 2
-            ;;
-        --ws-port)
-            WS_PORT="$2"
             shift 2
             ;;
         --debug)
@@ -94,22 +79,25 @@ while [[ $# -gt 0 ]]; do
             CORS=false
             shift
             ;;
+        --production)
+            PRODUCTION=true
+            shift
+            ;;
         --help|-h)
             echo "Usage: $0 [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  --transport {http|websocket|both}  Transport protocol (default: both)"
-            echo "  --http-port PORT                   HTTP port (default: 3000)"
-            echo "  --ws-port PORT                     WebSocket port (default: 3001)"
+            echo "  --http-port PORT                   HTTP port (default: 8880)"
             echo "  --debug                           Enable debug mode"
             echo "  --no-cors                         Disable CORS"
+            echo "  --production                      Use production WSGI server (gunicorn)"
             echo "  --help, -h                        Show this help message"
             echo ""
             echo "Examples:"
-            echo "  $0                                # Start with both transports"
-            echo "  $0 --transport http               # HTTP only"
-            echo "  $0 --transport websocket          # WebSocket only"
+            echo "  $0                                # Start with default settings"
+            echo "  $0 --http-port 8080               # Use custom port"
             echo "  $0 --debug                        # Debug mode"
+            echo "  $0 --production                   # Production mode"
             exit 0
             ;;
         *)
@@ -134,27 +122,28 @@ echo "================================================================"
 echo ""
 
 print_status "Starting MCP server with configuration:"
-print_status "  Transport: $TRANSPORT"
 print_status "  HTTP Port: $HTTP_PORT"
-print_status "  WebSocket Port: $WS_PORT"
 print_status "  Debug Mode: $DEBUG"
+print_status "  Production Mode: $PRODUCTION"
 print_status "  CORS Enabled: $CORS"
 echo ""
 
 # Start the MCP server
 print_status "Starting MCP server..."
 echo "📍 HTTP: http://localhost:$HTTP_PORT/mcp"
-echo "📍 WebSocket: ws://localhost:$WS_PORT"
 echo "⏹️  Press Ctrl+C to stop"
 echo ""
 
 # Build the command
-CMD="python mcp_server.py --transport $TRANSPORT --http-port $HTTP_PORT --ws-port $WS_PORT"
+CMD="python mcp_server.py --http-port $HTTP_PORT"
 if [ "$DEBUG" = true ]; then
     CMD="$CMD --debug"
 fi
 if [ "$CORS" = false ]; then
     CMD="$CMD --no-cors"
+fi
+if [ "$PRODUCTION" = true ]; then
+    CMD="$CMD --production"
 fi
 
 # Execute the command

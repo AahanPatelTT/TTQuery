@@ -25,10 +25,10 @@ The Synapse MCP Server is built on a **layered architecture** that separates con
 ├─────────────────────────────────────────────────┤
 │            MCP Protocol Layer                   │ ← JSON-RPC 2.0 compliance
 ├─────────────────────────────────────────────────┤
-│         Transport Layer                         │ ← HTTP / WebSocket
+│         Transport Layer                         │ ← HTTP with SSE
 │  ┌─────────────────┐ ┌─────────────────────────┐ │
-│  │  HTTP Transport │ │  WebSocket Transport    │ │
-│  │  (Port 3000)    │ │     (Port 3001)         │ │
+│  │  HTTP Transport │ │  SSE Transport         │ │
+│  │  /mcp (Port 8880)│ │  /sse (Port 8880)      │ │
 │  └─────────────────┘ └─────────────────────────┘ │
 ├─────────────────────────────────────────────────┤
 │              MCP Server Core                    │ ← Message routing & tool execution
@@ -238,44 +238,42 @@ class HTTPTransport:
 - ✅ **Error Handling**: Comprehensive HTTP error response mapping
 - ✅ **Content Negotiation**: Proper JSON content type handling
 
-### **WebSocket Transport** (`WebSocketTransport` class)
+### **SSE Transport** (Server-Sent Events)
 
-Built on the `websockets` library with persistent connections:
+Built on Flask's Response streaming with `text/event-stream`:
 
 ```python
-class WebSocketTransport:
-    def __init__(self, mcp_server: MCPServer, port: int = 3001):
-        self.mcp_server = mcp_server
-        self.clients = set()  # Active client connections
-        
-    async def handle_client(self, websocket, path):
-        # Connection lifecycle management
-        # Message processing loop
-        # Error handling and recovery
+@self.app.route('/sse', methods=['POST'])
+def handle_sse_request():
+    def generate():
+        response = asyncio.run(self.mcp_server.handle_message(data, session_id))
+        yield f"event: session\ndata: {session_id}\n\n"
+        yield f"event: message\ndata: {json.dumps(response)}\n\n"
+        yield "event: done\ndata: {}\n\n"
+    
+    return Response(generate(), mimetype='text/event-stream')
 ```
 
 **Features:**
-- ✅ **Full Duplex**: Bidirectional communication
-- ✅ **Connection Management**: Automatic client tracking
-- ✅ **Real-time**: Instant message delivery
-- ✅ **Error Recovery**: Connection failure handling
+- ✅ **Streaming Responses**: Real-time event delivery
+- ✅ **FastMCP Compatible**: Session headers via `mcp-session-id`
+- ✅ **Event Types**: session, message, done, error
+- ✅ **Standard SSE Format**: Compatible with all SSE clients
 
-### **Transport Selection Logic**
+### **FastMCP Session Management**
+
+Sessions managed via HTTP headers:
 
 ```python
-def main():
-    if args.transport == "http":
-        transport = HTTPTransport(mcp_server, port=args.http_port)
-        transport.run()
-    elif args.transport == "websocket":
-        transport = WebSocketTransport(mcp_server, port=args.ws_port)
-        asyncio.run(transport.run())
-    elif args.transport == "both":
-        # Run HTTP in background thread
-        http_thread = threading.Thread(target=run_http)
-        http_thread.start()
-        # Run WebSocket in main thread
-        asyncio.run(run_websocket())
+# Request includes session ID
+headers = {"mcp-session-id": "session-123"}
+
+# Server injects into tool arguments automatically
+if tool_name == 'ask_question' and session_id:
+    arguments['session_id'] = session_id
+
+# Response includes session ID
+response.headers['mcp-session-id'] = session_id
 ```
 
 ## 🛠️ **Tool System Design**
@@ -559,15 +557,13 @@ async def handle_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
 class ConnectionPool:
     def __init__(self, max_connections: int = 100):
         self.pool = asyncio.BoundedSemaphore(max_connections)
-        self.active_connections: Set[websockets.WebSocketServerProtocol] = set()
+        self.active_sessions: Dict[str, ChatSession] = {}
     
-    async def handle_connection(self, websocket):
-        async with self.pool:
-            self.active_connections.add(websocket)
-            try:
-                await self.process_messages(websocket)
-            finally:
-                self.active_connections.remove(websocket)
+    def handle_request(self, session_id: str):
+        # Session tracking for FastMCP
+        if session_id not in self.active_sessions:
+            self.active_sessions[session_id] = ChatSession()
+        return self.active_sessions[session_id]
 ```
 
 ### **Caching Strategy**
@@ -711,7 +707,7 @@ async def health_check(self) -> Dict[str, Any]:
         "memory_usage": self.get_memory_usage(),
         "transport_status": {
             "http": self.http_transport.is_healthy() if self.http_transport else None,
-            "websocket": self.ws_transport.is_healthy() if self.ws_transport else None
+            "sse": True  # SSE uses same HTTP transport
         }
     }
 ```
@@ -725,6 +721,6 @@ The Synapse MCP Server provides a robust, scalable, and extensible framework for
 - **🛡️ Security First**: Comprehensive error handling and validation
 - **🔧 Extensible**: Plugin architecture for custom tools and transports
 - **📊 Observable**: Rich logging and monitoring capabilities
-- **🌐 Transport Agnostic**: HTTP and WebSocket support with more possible
+- **🌐 FastMCP Compatible**: HTTP with SSE streaming and session header management
 
 This architecture enables seamless integration between the powerful Synapse RAG system and AI models, providing a production-ready bridge for intelligent document processing and knowledge retrieval.

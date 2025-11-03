@@ -3,12 +3,12 @@
 Synapse MCP Client Example
 
 This script demonstrates how to interact with the Synapse MCP server
-using both HTTP and WebSocket transports. It provides examples of all
-available MCP tools and shows how to maintain conversation sessions.
+using HTTP transport. It provides examples of all available MCP tools 
+and shows how to maintain conversation sessions.
 
 Usage:
-    python mcp_client_example.py --transport http --host localhost --port 3000
-    python mcp_client_example.py --transport websocket --host localhost --port 3001
+    python mcp_client_example.py --host localhost --port 8880
+    python mcp_client_example.py --demo
 """
 
 import argparse
@@ -25,23 +25,13 @@ try:
 except ImportError:
     REQUESTS_AVAILABLE = False
 
-# WebSocket client
-try:
-    import websockets
-    WEBSOCKETS_AVAILABLE = True
-except ImportError:
-    WEBSOCKETS_AVAILABLE = False
-
-
 class MCPClient:
     """MCP Client for interacting with Synapse MCP server"""
     
-    def __init__(self, transport: str, host: str = "localhost", port: int = 3000):
-        self.transport = transport
+    def __init__(self, host: str = "localhost", port: int = 8880):
         self.host = host
         self.port = port
         self.message_id = 0
-        self.websocket = None
         
     def get_next_id(self) -> int:
         """Get next message ID"""
@@ -71,33 +61,9 @@ class MCPClient:
         except requests.RequestException as e:
             return {"error": {"code": -32603, "message": f"HTTP request failed: {e}"}}
     
-    async def send_websocket_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
-        """Send WebSocket message to MCP server"""
-        if not WEBSOCKETS_AVAILABLE:
-            raise ImportError("websockets library required for WebSocket transport")
-        
-        if not self.websocket:
-            uri = f"ws://{self.host}:{self.port}"
-            try:
-                self.websocket = await websockets.connect(uri)
-            except Exception as e:
-                return {"error": {"code": -32603, "message": f"WebSocket connection failed: {e}"}}
-        
-        try:
-            await self.websocket.send(json.dumps(message))
-            response = await self.websocket.recv()
-            return json.loads(response)
-        except Exception as e:
-            return {"error": {"code": -32603, "message": f"WebSocket message failed: {e}"}}
-    
     async def send_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
-        """Send message using configured transport"""
-        if self.transport == "http":
-            return await self.send_http_request(message)
-        elif self.transport == "websocket":
-            return await self.send_websocket_message(message)
-        else:
-            raise ValueError(f"Unknown transport: {self.transport}")
+        """Send message via HTTP"""
+        return await self.send_http_request(message)
     
     async def initialize(self) -> Dict[str, Any]:
         """Initialize MCP session"""
@@ -132,9 +98,8 @@ class MCPClient:
         return await self.send_message(message)
     
     async def close(self):
-        """Close connection"""
-        if self.websocket:
-            await self.websocket.close()
+        """Close connection (no-op for HTTP)"""
+        pass
 
 
 async def demo_basic_functionality(client: MCPClient):
@@ -459,10 +424,9 @@ async def main():
         description="Synapse MCP Client Example - Test and demonstrate MCP server functionality",
         epilog="""
 Examples:
-  %(prog)s --demo                                    # Run complete demo with HTTP
+  %(prog)s --demo                                    # Run complete demo
   %(prog)s --interactive                             # Interactive mode for testing
-  %(prog)s --transport websocket --demo              # Demo with WebSocket transport
-  %(prog)s --transport http --port 8080 --demo       # Demo with custom HTTP port
+  %(prog)s --port 8080 --demo                        # Demo with custom port
   
 The MCP server should be running before using this client:
   ./launch.sh --mcp                                  # Start MCP server
@@ -470,12 +434,10 @@ The MCP server should be running before using this client:
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     
-    parser.add_argument("--transport", choices=["http", "websocket"], default="http",
-                      help="Transport protocol to use (default: http)")
     parser.add_argument("--host", default="localhost", 
                       help="MCP server host (default: localhost)")
-    parser.add_argument("--port", type=int, 
-                      help="Server port (default: 3000 for HTTP, 3001 for WebSocket)")
+    parser.add_argument("--port", type=int, default=8880,
+                      help="Server port (default: 8880)")
     parser.add_argument("--demo", action="store_true", 
                       help="Run comprehensive demo of all MCP functionality")
     parser.add_argument("--interactive", action="store_true", 
@@ -483,15 +445,11 @@ The MCP server should be running before using this client:
     
     args = parser.parse_args()
     
-    # Set default ports
-    if not args.port:
-        args.port = 3000 if args.transport == "http" else 3001
-    
     # Create client
-    client = MCPClient(args.transport, args.host, args.port)
+    client = MCPClient(args.host, args.port)
     
     try:
-        print(f"🔗 Connecting to MCP server via {args.transport.upper()} at {args.host}:{args.port}")
+        print(f"🔗 Connecting to MCP server at {args.host}:{args.port}")
         
         if args.demo:
             # Run full demo
